@@ -1,6 +1,7 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColor } from '@/hooks/use-theme-color';
@@ -27,6 +28,7 @@ type MealIdea = {
 export default function HomeScreen() {
   const textColor = useThemeColor({}, 'text');
   const cardColor = useThemeColor({}, 'background');
+  const insets = useSafeAreaInsets();
 
   const [preferredCuisines, setPreferredCuisines] = useState<string[]>([]);
   const [mode, setMode] = useState<'fridge' | 'supermarket'>('fridge');
@@ -141,7 +143,7 @@ export default function HomeScreen() {
   }, [ideas, mode]);
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]}>
       <View style={styles.headerRow}>
         <Text style={[styles.appTitle, { color: textColor }]}>今日〜数日を成立させる</Text>
         <View style={styles.badge}>

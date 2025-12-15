@@ -250,5 +250,231 @@
 
 ---
 
-※ 将来的に food 以外の生活領域へ拡張する可能性を考慮し、
-ブランド名は抽象度の高い「MAKANAI」を主軸とする。
+## 14. Cursor向けUI生成仕様書（画面設計依頼用）
+
+---
+
+## 14.0 画面遷移図（1枚・全体像）
+
+以下は MVP における**画面遷移の全体像**である。Cursor にはこの遷移構造を前提として UI を生成させる。
+
+```
+[App Launch]
+     |
+     v
+[Initial Survey]
+(Select familiar cuisines)
+     |
+     v
+[Start Screen]
+(Choose starting point)
+ ┌───────────────┬───────────────┐
+ |               |               |
+ v               v               |
+[Fridge Input]   [Shopping Input]|
+ |               |               |
+ └───────┬───────┴───────┬───────┘
+         v               v
+        [Meal Suggestions]
+         |        |       |
+         |        |       └─── Show another
+         |        |
+         |        └──────────── This works
+         |
+         v
+[Fridge Management]
+         |
+         v
+     [Start Screen]
+```
+
+**遷移ルール**
+- 初回起動時のみ `Initial Survey` を表示する
+- 2回目以降は `Start Screen` から開始
+- `Meal Suggestions` は必ず Fridge / Shopping のいずれかを経由する
+- `Fridge Management` は補助画面としてどのタイミングからも戻れる
+
+---
+
+## 14. Cursor向けUI生成仕様書（画面設計依頼用）
+
+本章は **Cursor（AIコーディングツール）に画面UIを生成させるための仕様定義** である。
+実装対象は **React Native + Expo** を前提とする。
+
+---
+
+### 14.1 全体設計方針（Cursorへの前提指示）
+
+- 対象：モバイルアプリ（iOS / Android 共通）
+- 技術：React Native + Expo
+- UI思想：
+  - シンプル
+  - 迷わせない
+  - 情報過多にしない
+- 写真・イラストは使わない
+- アイコンとテキストのみで構成
+
+---
+
+### 14.2 画面一覧（MVP）
+
+Cursorには以下の画面を作成させる。
+
+1. 初期アンケート画面（国旗選択）
+2. 起点選択画面
+3. 食材入力画面（冷蔵庫 / スーパー）
+4. 食事提案画面
+5. 冷蔵庫管理画面
+
+---
+
+### 14.3 画面①：初期アンケート画面
+
+**目的**
+- ユーザーが「よく作る国の料理」を直感的に選択する
+
+**UI要件**
+- タイトル："What food do you usually cook?"
+- 説明文："Select up to 3 cuisines you feel familiar with"
+- 国旗アイコンをグリッド表示（複数選択可）
+- スキップ不可
+- 完了ボタン："Continue"
+
+**保存データ**
+```ts
+preferredCuisines: string[] // 例: ['JP', 'IT']
+```
+
+---
+
+### 14.4 画面②：起点選択画面
+
+**目的**
+- 今日の行動起点を選ばせる
+
+**UI要件**
+- 大きなボタンを2つ縦並び
+  - 🧊 "Check my fridge"
+  - 🛒 "Go shopping"
+- サブコピー："Start from what you have or where you go"
+
+---
+
+### 14.5 画面③：食材入力画面
+
+**目的**
+- 冷蔵庫またはスーパー起点で食材を入力する
+
+**UI要件**
+- チェックリスト形式
+- よく使う食材を上部に表示
+- テキスト検索対応
+- 写真入力ボタンは非表示（将来拡張）
+
+---
+
+### 14.6 画面④：食事提案画面
+
+**目的**
+- 今日〜明日成立する食事案を提示
+
+**UI要件**
+- 最大3カード表示
+- 各カードに以下を表示
+  - タイトル
+  - 使用食材
+  - 不足食材
+  - 手間レベル（Low / Medium / High）
+- CTA："This works" / "Show another"
+
+---
+
+### 14.7 画面⑤：冷蔵庫管理画面
+
+**目的**
+- 現在の食材を一覧で確認・整理
+
+**UI要件**
+- 食材名 + 優先度カラー表示
+- スワイプで削除
+- 並び替え：優先度順
+
+---
+
+### 14.8 Cursorへの指示テンプレ（そのまま貼れる）
+
+```text
+You are building a React Native app with Expo.
+Implement screens exactly as specified.
+IMPORTANT:
+- One screen = one job (do not merge multiple steps into a single screen).
+- Follow the navigation flow in section 14.0.
+- Keep UI minimal (no decorative images).
+- Use Japanese UI copy for now (localization can be added later).
+- Use React Navigation. Create typed routes.
+```
+
+---
+
+※ 本章は Cursor による UI 自動生成を前提としており、
+デザインの正確さよりも「構造と遷移の正しさ」を優先する。
+
+---
+
+## 14.9 UIをもっと分かりやすくするための改訂指示（重要）
+
+以下の改訂は、実装画面が「1画面に情報を詰め込みすぎる」問題を防ぐための必須指示である。
+
+### 14.9.1 画面分割ルール
+
+- `Start Screen` に **食材入力欄・制約設定・チップ一覧を置かない**
+- `Fridge Management` に **スーパー起点メモ（国・都市/メモ入力）を置かない**
+- 食材入力と制約入力は同じ画面に置いてよいが、**折りたたみ（Advanced）**に入れる
+
+### 14.9.2 改訂後の画面責務（MVP）
+
+1) **Start Screen（起点選択）**
+- 大ボタン2つのみ：
+  - 🧊 冷蔵庫から始める
+  - 🛒 スーパーから始める
+- 補助：直近の選択を小さく表示（任意）
+
+2) **Ingredient Input（食材入力）**
+- 画面上部に現在モードを明示：
+  - 冷蔵庫モード / スーパー購入モード
+- 入力は「検索＋チップ追加」中心
+- テキスト欄は補助（カンマ入力可）
+- 下部固定CTA：**「提案を見る」**
+
+3) **Constraints（制約）**
+- `Ingredient Input` 画面内で **折りたたみ/ボトムシート**として提供
+- 露出は最小：
+  - 作る気力（低/普通/高）
+  - 慣れた国（初期アンケートで選択した国がデフォルト）
+  - 慣れ度バランス（現地寄せ/どちらでも/慣れた味寄せ）
+
+4) **Meal Suggestions（提案）**
+- 3カードまで
+- 各カードは「タイトル→使う→足りない→手間→作り方（折りたたみ）」
+- CTA：
+  - これでいく（保存して冷蔵庫へ反映）
+  - 別案
+
+5) **Fridge Management（冷蔵庫）**
+- 冷蔵庫アイテム一覧に責務を限定
+- 追加は右上＋ボタン（購入日と優先度）
+- スワイプ削除
+
+6) **Shopping Notes / Location（スーパー情報）**
+- 冷蔵庫画面から分離し、設定 or 別タブ/別画面にする
+- 国・都市は自動取得（編集可）
+- メモは「揃いやすいブランド/食材」を短く保存
+
+### 14.9.3 文言の簡略化（例）
+
+- 「今日〜数日を成立させる」→ 画面タイトルは短く **「今日どうする？」**
+- 「食材入力（チェックリスト/テキスト）」→ **「食材を追加」**
+- 「現地料理OK」→ **「現地でもOK」**
+- 「慣れた国」→ **「慣れた味」**（国旗で表示）
+
+

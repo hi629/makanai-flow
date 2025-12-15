@@ -1,6 +1,7 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColor } from '@/hooks/use-theme-color';
@@ -28,6 +29,7 @@ type Settings = {
 export default function PantryScreen() {
   const textColor = useThemeColor({}, 'text');
   const cardColor = useThemeColor({}, 'background');
+  const insets = useSafeAreaInsets();
 
   const [fridgeItems, setFridgeItems] = useState<FridgeItem[]>(initialFridge);
   const [settings, setSettings] = useState<Settings>({ country: 'Georgia', language: '日本語' });
@@ -64,7 +66,7 @@ export default function PantryScreen() {
   };
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
+    <ScrollView style={styles.container} contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]}>
       <View style={styles.headerRow}>
         <Text style={[styles.title, { color: textColor }]}>冷蔵庫管理 & スーパー起点</Text>
         <View style={styles.badge}>

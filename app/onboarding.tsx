@@ -1,14 +1,14 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import {
+  ScrollView,
   StyleSheet,
-  View,
   Text,
   TouchableOpacity,
-  ScrollView,
-  SafeAreaView,
+  View,
 } from 'react-native';
-import { router } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useThemeColor } from '@/hooks/use-theme-color';
 
@@ -31,6 +31,7 @@ export default function OnboardingScreen() {
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const backgroundColor = useThemeColor({}, 'background');
   const textColor = useThemeColor({}, 'text');
+  const insets = useSafeAreaInsets();
 
   const toggleCuisine = (code: string) => {
     setSelectedCuisines((prev) => {
@@ -61,7 +62,7 @@ export default function OnboardingScreen() {
   const canContinue = selectedCuisines.length >= 1;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor }]}>
+    <View style={[styles.container, { backgroundColor, paddingTop: insets.top }]}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -124,7 +125,7 @@ export default function OnboardingScreen() {
         </View>
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}>
         <TouchableOpacity
           style={[
             styles.continueButton,
@@ -137,7 +138,7 @@ export default function OnboardingScreen() {
           <Text style={styles.continueButtonText}>はじめる</Text>
         </TouchableOpacity>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -217,7 +218,6 @@ const styles = StyleSheet.create({
   },
   footer: {
     paddingHorizontal: 24,
-    paddingBottom: 24,
   },
   continueButton: {
     backgroundColor: '#FF6B35',
