@@ -256,7 +256,7 @@
 
 ## 14.0 画面遷移図（1枚・全体像）
 
-以下は MVP における**画面遷移の全体像**である。Cursor にはこの遷移構造を前提として UI を生成させる。
+MVP の**画面遷移と UIUX の流れを再設計**した。Cursor はこの遷移と操作感を前提に UI を生成すること。
 
 ```
 [App Launch]
@@ -266,33 +266,38 @@
 (Select familiar cuisines)
      |
      v
-[Start Screen]
-(Choose starting point)
+[Start Screen - quick actions]
+(1タップで起点選択 or 前回の続きを再開)
  ┌───────────────┬───────────────┐
  |               |               |
- v               v               |
-[Fridge Input]   [Shopping Input]|
- |               |               |
+ v               v               v
+[Fridge Input]   [Shopping Input] [Resume last flow]
+ |               |               /
  └───────┬───────┴───────┬───────┘
          v               v
-        [Meal Suggestions]
-         |        |       |
-         |        |       └─── Show another
-         |        |
-         |        └──────────── This works
+     [Prep Sheet - state & tags]
          |
          v
-[Fridge Management]
+     [Meal Suggestions]
+         |      |      |
+         |      |      └─── "Show another" (その場で置換)
+         |      └───────── "Swap ingredients" (下部シートで再選択)
+         |
+         v
+  [Fridge Management]
          |
          v
      [Start Screen]
 ```
 
-**遷移ルール**
-- 初回起動時のみ `Initial Survey` を表示する
-- 2回目以降は `Start Screen` から開始
-- `Meal Suggestions` は必ず Fridge / Shopping のいずれかを経由する
-- `Fridge Management` は補助画面としてどのタイミングからも戻れる
+**遷移・操作ルール**
+- 初回起動時のみ `Initial Survey` を表示し、回答後に `Start Screen` へ遷移する。
+- 2回目以降は `Start Screen` を起点とし、「前回の続きを再開」ショートカットを上部に配置する。
+- `Prep Sheet`（状態入力）は起点選択後に必ず差し込み、"気力" や "現地/慣れた味" などをまとめて1画面で設定する。
+- `Meal Suggestions` はカード内の CTA をトグル的に挙動させる。
+  - "Show another" は同じ位置でカードを差し替え、画面遷移はさせない。
+  - "Swap ingredients" で下部シート（Modal/BotttomSheet）を開き、再選択後は同じ位置でリフレッシュする。
+- `Fridge Management` はヘッダーのミニリンクからモーダルで開き、閉じると元の画面に戻る。必要に応じて Start Screen へ戻るナビを配置。
 
 ---
 
@@ -350,13 +355,15 @@ preferredCuisines: string[] // 例: ['JP', 'IT']
 ### 14.4 画面②：起点選択画面
 
 **目的**
-- 今日の行動起点を選ばせる
+- 今日の行動起点を選ばせる＋前回の続きに素早く戻す
 
 **UI要件**
+- Hero セクションに "Resume last flow"（前回の入力→提案をリジューム）を配置
 - 大きなボタンを2つ縦並び
   - 🧊 "Check my fridge"
   - 🛒 "Go shopping"
 - サブコピー："Start from what you have or where you go"
+- 下部に "Manage fridge" ミニリンク（モーダル遷移）を置き、軽量な確認を可能にする
 
 ---
 
@@ -369,27 +376,59 @@ preferredCuisines: string[] // 例: ['JP', 'IT']
 - チェックリスト形式
 - よく使う食材を上部に表示
 - テキスト検索対応
+- "Swap ingredients" 用に、選択済みリストをチップ表示し、タップで削除できる
 - 写真入力ボタンは非表示（将来拡張）
+- 次画面の状態入力（Prep Sheet）に進む CTA をフッターに固定
+
+**遷移補足**
+- Start Screen からの起点選択後に表示し、完了後は必ず Prep Sheet に遷移する
 
 ---
 
-### 14.6 画面④：食事提案画面
+### 14.6 画面④：状態入力（Prep Sheet）
+
+**目的**
+- その日のコンディションとモードをまとめて設定し、提案の精度を高める
+
+**UI要件**
+- セクションカードを縦に並べ、1スクロールで完結
+- 入力項目
+  - Effort（Low / Medium / High）: セグメントボタン
+  - Mode（Local / Familiar / Either）: 単一選択トグル
+  - タグ: "No oven", "Quick cleanup", "Comfort food" など 3〜5 個のトグル
+- 上部に選択済み食材サマリー（横スクロールチップ）を表示
+- CTA："See suggestions"、タップで Meal Suggestions に遷移
+
+**操作補足**
+- Effort と Mode の初期値は前回の選択を保存し、再起動時も引き継ぐ
+- "Manage fridge" モーダルをヘッダーから呼び出し可能
+
+---
+
+### 14.7 画面⑤：食事提案画面
 
 **目的**
 - 今日〜明日成立する食事案を提示
 
 **UI要件**
-- 最大3カード表示
+- 最大3カード表示（横スワイプでも切替可能）
 - 各カードに以下を表示
   - タイトル
   - 使用食材
   - 不足食材
   - 手間レベル（Low / Medium / High）
-- CTA："This works" / "Show another"
+- CTA："This works" / "Show another" / "Swap ingredients"
+- "Show another" は同じカード領域を差し替え、スクロール位置を維持
+- "Swap ingredients" は下部シートを開き、食材チップの再選択後にカードを再生成
+- 右上に "Manage fridge" ミニリンクを配置（モーダルで開閉）
+
+**操作補足**
+- "This works" で確定した場合のみ、サクセストーストを表示し Start Screen に戻る
+- "Show another" は API 再呼び出し後もアニメーションで位置を固定（フェードイン）
 
 ---
 
-### 14.7 画面⑤：冷蔵庫管理画面
+### 14.8 画面⑥：冷蔵庫管理画面
 
 **目的**
 - 現在の食材を一覧で確認・整理
@@ -401,7 +440,7 @@ preferredCuisines: string[] // 例: ['JP', 'IT']
 
 ---
 
-### 14.8 Cursorへの指示テンプレ（そのまま貼れる）
+### 14.9 Cursorへの指示テンプレ（そのまま貼れる）
 
 ```text
 You are building a React Native app with Expo.
@@ -421,44 +460,44 @@ IMPORTANT:
 
 ---
 
-## 14.9 UIをもっと分かりやすくするための改訂指示（重要）
+## 14.10 UIをもっと分かりやすくするための改訂指示（重要）
 
 以下の改訂は、実装画面が「1画面に情報を詰め込みすぎる」問題を防ぐための必須指示である。
 
-### 14.9.1 画面分割ルール
+### 14.10.1 画面分割ルール
 
-- `Start Screen` に **食材入力欄・制約設定・チップ一覧を置かない**
+- `Start Screen` に **食材入力欄・制約設定を置かない**（Resume・リンク類のみ）
 - `Fridge Management` に **スーパー起点メモ（国・都市/メモ入力）を置かない**
-- 食材入力と制約入力は同じ画面に置いてよいが、**折りたたみ（Advanced）**に入れる
+- 制約入力は `Prep Sheet` に集約し、`Ingredient Input` では選択済みチップ操作に限定する
 
-### 14.9.2 改訂後の画面責務（MVP）
+### 14.10.2 改訂後の画面責務（MVP）
 
 1) **Start Screen（起点選択）**
-- 大ボタン2つのみ：
+- Hero に「前回の続きを再開」カード
+- 大ボタン2つ：
   - 🧊 冷蔵庫から始める
   - 🛒 スーパーから始める
-- 補助：直近の選択を小さく表示（任意）
+- 下部に "Manage fridge" ミニリンク（モーダル）
 
 2) **Ingredient Input（食材入力）**
 - 画面上部に現在モードを明示：
   - 冷蔵庫モード / スーパー購入モード
 - 入力は「検索＋チップ追加」中心
 - テキスト欄は補助（カンマ入力可）
-- 下部固定CTA：**「提案を見る」**
+- 選択済みチップはタップで削除、Swap でボトムシートを再利用
+- 下部固定CTA：**「状態を設定する」**（Prep Sheet へ）
 
-3) **Constraints（制約）**
-- `Ingredient Input` 画面内で **折りたたみ/ボトムシート**として提供
-- 露出は最小：
-  - 作る気力（低/普通/高）
-  - 慣れた国（初期アンケートで選択した国がデフォルト）
-  - 慣れ度バランス（現地寄せ/どちらでも/慣れた味寄せ）
+3) **Prep Sheet（状態入力）**
+- Effort / Mode / タグをまとめて単画面で設定
+- 食材チップのサマリーを上部に表示
+- CTA：**「提案を見る」**（Meal Suggestions へ）
 
 4) **Meal Suggestions（提案）**
-- 3カードまで
-- 各カードは「タイトル→使う→足りない→手間→作り方（折りたたみ）」
+- 3カードまで（横スワイプ可）
 - CTA：
-  - これでいく（保存して冷蔵庫へ反映）
-  - 別案
+  - This works（保存→Start Screenへ）
+  - Show another（同枠差し替え）
+  - Swap ingredients（ボトムシートで再選択）
 
 5) **Fridge Management（冷蔵庫）**
 - 冷蔵庫アイテム一覧に責務を限定
@@ -470,7 +509,7 @@ IMPORTANT:
 - 国・都市は自動取得（編集可）
 - メモは「揃いやすいブランド/食材」を短く保存
 
-### 14.9.3 文言の簡略化（例）
+### 14.10.3 文言の簡略化（例）
 
 - 「今日〜数日を成立させる」→ 画面タイトルは短く **「今日どうする？」**
 - 「食材入力（チェックリスト/テキスト）」→ **「食材を追加」**
