@@ -1,10 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
+  KeyboardAvoidingView,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -12,132 +15,244 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useThemeColor } from '@/hooks/use-theme-color';
 
-const CUISINE_OPTIONS = [
-  { code: 'JP', flag: '🇯🇵', name: 'Japan' },
-  { code: 'IT', flag: '🇮🇹', name: 'Italy' },
-  { code: 'FR', flag: '🇫🇷', name: 'France' },
-  { code: 'IN', flag: '🇮🇳', name: 'India' },
-  { code: 'MX', flag: '🇲🇽', name: 'Mexico' },
-  { code: 'CN', flag: '🇨🇳', name: 'China' },
-  { code: 'KR', flag: '🇰🇷', name: 'Korea' },
-  { code: 'TH', flag: '🇹🇭', name: 'Thailand' },
-  { code: 'VN', flag: '🇻🇳', name: 'Vietnam' },
-  { code: 'US', flag: '🇺🇸', name: 'USA' },
-  { code: 'ES', flag: '🇪🇸', name: 'Spain' },
-  { code: 'GR', flag: '🇬🇷', name: 'Greece' },
+type UserProfile = {
+  gender: string;
+  age: number;
+  height: number;
+  weight: number;
+  goal: string;
+  environment: string;
+  sessionMinutes: number;
+};
+
+const GENDER_OPTIONS = [
+  { key: 'male', label: '男性' },
+  { key: 'female', label: '女性' },
+  { key: 'other', label: 'その他' },
+];
+
+const GOAL_OPTIONS = [
+  { key: '筋肥大', label: '筋肥大' },
+  { key: '体力向上', label: '体力向上' },
+  { key: '体型維持', label: '体型維持' },
+];
+
+const ENVIRONMENT_OPTIONS = [
+  { key: '自宅（自重）', label: '自宅（自重）' },
+  { key: 'ジム（マシンあり）', label: 'ジム（マシンあり）' },
+];
+
+const SESSION_OPTIONS = [
+  { key: 20, label: '20分' },
+  { key: 40, label: '40分' },
+  { key: 60, label: '60分' },
 ];
 
 export default function OnboardingScreen() {
-  const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   const backgroundColor = useThemeColor({}, 'background');
   const textColor = useThemeColor({}, 'text');
   const insets = useSafeAreaInsets();
 
-  const toggleCuisine = (code: string) => {
-    setSelectedCuisines((prev) => {
-      if (prev.includes(code)) {
-        return prev.filter((c) => c !== code);
+  const [gender, setGender] = useState('');
+  const [age, setAge] = useState('');
+  const [height, setHeight] = useState('');
+  const [weight, setWeight] = useState('');
+  const [goal, setGoal] = useState('');
+  const [environment, setEnvironment] = useState('');
+  const [sessionMinutes, setSessionMinutes] = useState<number | null>(null);
+
+  useEffect(() => {
+    const loadProfile = async () => {
+      try {
+        const saved = await AsyncStorage.getItem('user_profile');
+        if (saved) {
+          const parsed: UserProfile = JSON.parse(saved);
+          setGender(parsed.gender ?? '');
+          setAge(parsed.age ? String(parsed.age) : '');
+          setHeight(parsed.height ? String(parsed.height) : '');
+          setWeight(parsed.weight ? String(parsed.weight) : '');
+          setGoal(parsed.goal ?? '');
+          setEnvironment(parsed.environment ?? '');
+          setSessionMinutes(parsed.sessionMinutes ?? null);
+        }
+      } catch (error) {
+        console.warn('プロフィールの読み込みに失敗しました', error);
       }
-      if (prev.length >= 3) {
-        return prev;
-      }
-      return [...prev, code];
-    });
-  };
+    };
+
+    loadProfile();
+  }, []);
+
+  const numericAge = useMemo(() => Number(age), [age]);
+  const numericHeight = useMemo(() => Number(height), [height]);
+  const numericWeight = useMemo(() => Number(weight), [weight]);
+
+  const isValid = useMemo(() => {
+    return (
+      gender !== '' &&
+      goal !== '' &&
+      environment !== '' &&
+      sessionMinutes !== null &&
+      !Number.isNaN(numericAge) &&
+      !Number.isNaN(numericHeight) &&
+      !Number.isNaN(numericWeight) &&
+      numericAge > 0 &&
+      numericHeight > 0 &&
+      numericWeight > 0
+    );
+  }, [
+    environment,
+    gender,
+    goal,
+    numericAge,
+    numericHeight,
+    numericWeight,
+    sessionMinutes,
+  ]);
 
   const handleComplete = async () => {
+    if (!isValid || sessionMinutes === null) return;
+
+    const profile: UserProfile = {
+      gender,
+      age: numericAge,
+      height: numericHeight,
+      weight: numericWeight,
+      goal,
+      environment,
+      sessionMinutes,
+    };
+
     try {
-      await AsyncStorage.setItem(
-        'preferred_cuisines',
-        JSON.stringify(selectedCuisines)
-      );
+      await AsyncStorage.setItem('user_profile', JSON.stringify(profile));
       await AsyncStorage.setItem('onboarding_complete', 'true');
       router.replace('/(tabs)');
     } catch (error) {
-      console.error('Failed to save preferences:', error);
+      console.error('Failed to save profile:', error);
     }
   };
 
-  const isSelected = (code: string) => selectedCuisines.includes(code);
-  const canContinue = selectedCuisines.length >= 1;
+  const renderOptionRow = (
+    options: { key: string | number; label: string }[],
+    selected: string | number | null,
+    onSelect: (key: string | number) => void
+  ) => (
+    <View style={styles.optionRow}>
+      {options.map((option) => {
+        const isSelected = selected === option.key;
+        return (
+          <TouchableOpacity
+            key={option.key}
+            style={[
+              styles.optionButton,
+              isSelected && styles.optionButtonSelected,
+              { borderColor: isSelected ? '#FF6B35' : textColor + '20' },
+            ]}
+            onPress={() => onSelect(option.key)}
+            activeOpacity={0.8}
+          >
+            <Text
+              style={[
+                styles.optionLabel,
+                { color: isSelected ? '#FF6B35' : textColor },
+              ]}
+            >
+              {option.label}
+            </Text>
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+
+  const renderNumberField = (
+    label: string,
+    value: string,
+    unit: string,
+    onChange: (text: string) => void
+  ) => (
+    <View style={styles.inputGroup}>
+      <Text style={[styles.label, { color: textColor }]}>{label}</Text>
+      <View style={styles.inputWithUnit}>
+        <TextInput
+          value={value}
+          onChangeText={onChange}
+          keyboardType="numeric"
+          placeholder="0"
+          style={[styles.input, { color: textColor, borderColor: textColor + '20' }]}
+        />
+        <Text style={[styles.unitLabel, { color: textColor }]}>{unit}</Text>
+      </View>
+    </View>
+  );
 
   return (
-    <View style={[styles.container, { backgroundColor, paddingTop: insets.top }]}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+    <View
+      style={[styles.container, { backgroundColor, paddingTop: Math.max(insets.top, 16) }]}
+    >
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={24}
       >
-        <View style={styles.header}>
-          <Text style={[styles.logo, { color: textColor }]}>MAKANAI</Text>
-          <Text style={[styles.tagline, { color: textColor, opacity: 0.6 }]}>
-            From fridge to plate, anywhere.
-          </Text>
-        </View>
-
-        <View style={styles.questionContainer}>
-          <Text style={[styles.question, { color: textColor }]}>
-            よく作る（食べたい）国の料理は？
-          </Text>
-          <Text style={[styles.hint, { color: textColor, opacity: 0.5 }]}>
-            1〜3つ選んでください
-          </Text>
-        </View>
-
-        <View style={styles.grid}>
-          {CUISINE_OPTIONS.map((cuisine) => (
-            <TouchableOpacity
-              key={cuisine.code}
-              style={[
-                styles.cuisineButton,
-                isSelected(cuisine.code) && styles.cuisineButtonSelected,
-                {
-                  borderColor: isSelected(cuisine.code)
-                    ? '#FF6B35'
-                    : textColor + '20',
-                },
-              ]}
-              onPress={() => toggleCuisine(cuisine.code)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.flag}>{cuisine.flag}</Text>
-              <Text
-                style={[
-                  styles.cuisineName,
-                  { color: textColor },
-                  isSelected(cuisine.code) && styles.cuisineNameSelected,
-                ]}
-              >
-                {cuisine.name}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <View style={styles.selectedContainer}>
-          {selectedCuisines.length > 0 && (
-            <Text style={[styles.selectedText, { color: textColor, opacity: 0.6 }]}>
-              選択中:{' '}
-              {selectedCuisines
-                .map((code) => CUISINE_OPTIONS.find((c) => c.code === code)?.flag)
-                .join(' ')}
-            </Text>
-          )}
-        </View>
-      </ScrollView>
-
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}>
-        <TouchableOpacity
-          style={[
-            styles.continueButton,
-            !canContinue && styles.continueButtonDisabled,
-          ]}
-          onPress={handleComplete}
-          disabled={!canContinue}
-          activeOpacity={0.8}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={styles.continueButtonText}>はじめる</Text>
-        </TouchableOpacity>
-      </View>
+          <View style={styles.header}>
+            <Text style={[styles.logo, { color: textColor }]}>MAKANAI</Text>
+            <Text style={[styles.tagline, { color: textColor, opacity: 0.6 }]}>AI生成のための基本情報</Text>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: textColor }]}>プロフィール</Text>
+            <Text style={[styles.hint, { color: textColor, opacity: 0.6 }]}>必須項目を入力してください</Text>
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: textColor }]}>性別</Text>
+            {renderOptionRow(GENDER_OPTIONS, gender, (key) => setGender(String(key)))}
+          </View>
+
+          {renderNumberField('年齢', age, '歳', setAge)}
+          {renderNumberField('身長', height, 'cm', setHeight)}
+          {renderNumberField('体重', weight, 'kg', setWeight)}
+
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: textColor }]}>目標</Text>
+            {renderOptionRow(GOAL_OPTIONS, goal, (key) => setGoal(String(key)))}
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: textColor }]}>トレーニング環境</Text>
+            {renderOptionRow(
+              ENVIRONMENT_OPTIONS,
+              environment,
+              (key) => setEnvironment(String(key))
+            )}
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={[styles.label, { color: textColor }]}>1回あたりの時間</Text>
+            {renderOptionRow(SESSION_OPTIONS, sessionMinutes, (key) =>
+              setSessionMinutes(Number(key))
+            )}
+          </View>
+        </ScrollView>
+
+        <View
+          style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24), borderTopColor: textColor + '10' }]}
+        >
+          <TouchableOpacity
+            style={[styles.continueButton, !isValid && styles.continueButtonDisabled]}
+            onPress={handleComplete}
+            disabled={!isValid}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.continueButtonText}>保存してはじめる</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -146,78 +261,89 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  flex: {
+    flex: 1,
+  },
   scrollContent: {
     paddingHorizontal: 24,
-    paddingTop: 48,
-    paddingBottom: 24,
+    paddingTop: 24,
+    paddingBottom: 12,
   },
   header: {
     alignItems: 'center',
-    marginBottom: 48,
+    marginBottom: 24,
   },
   logo: {
-    fontSize: 36,
+    fontSize: 32,
     fontWeight: '700',
-    letterSpacing: 4,
+    letterSpacing: 3,
   },
   tagline: {
     fontSize: 14,
-    marginTop: 8,
-    fontStyle: 'italic',
+    marginTop: 6,
   },
-  questionContainer: {
-    marginBottom: 32,
+  section: {
+    marginBottom: 12,
+    alignItems: 'flex-start',
   },
-  question: {
+  sectionTitle: {
     fontSize: 20,
     fontWeight: '600',
-    textAlign: 'center',
   },
   hint: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 8,
+    fontSize: 13,
+    marginTop: 4,
   },
-  grid: {
+  inputGroup: {
+    marginBottom: 20,
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  optionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 12,
+    gap: 10,
   },
-  cuisineButton: {
-    width: 100,
-    height: 100,
-    borderRadius: 16,
+  optionButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     borderWidth: 2,
+    minWidth: 90,
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
   },
-  cuisineButtonSelected: {
+  optionButtonSelected: {
     backgroundColor: '#FF6B3515',
   },
-  flag: {
-    fontSize: 36,
-    marginBottom: 4,
-  },
-  cuisineName: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  cuisineNameSelected: {
-    color: '#FF6B35',
+  optionLabel: {
+    fontSize: 15,
     fontWeight: '600',
   },
-  selectedContainer: {
-    marginTop: 24,
+  inputWithUnit: {
+    flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 24,
+    gap: 10,
   },
-  selectedText: {
-    fontSize: 14,
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 16,
+    backgroundColor: 'transparent',
+  },
+  unitLabel: {
+    fontSize: 16,
+    fontWeight: '600',
   },
   footer: {
     paddingHorizontal: 24,
+    paddingTop: 12,
+    borderTopWidth: 1,
   },
   continueButton: {
     backgroundColor: '#FF6B35',
@@ -231,7 +357,6 @@ const styles = StyleSheet.create({
   continueButtonText: {
     color: '#FFFFFF',
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });
-

@@ -38,7 +38,13 @@ export default function TabLayout() {
           title: '履歴',
           tabBarIcon: ({ color }) => (
             <IconSymbol size={28} name="chart.bar.doc.horizontal" color={color} />
-          ),
+        }}
+      />
+      <Tabs.Screen
+        name="training"
+        options={{
+          title: 'トレーニング',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="checkmark" color={color} />,
         }}
       />
     </Tabs>
