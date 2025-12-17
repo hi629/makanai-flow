@@ -33,6 +33,14 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
+        name="history"
+        options={{
+          title: '履歴',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="chart.bar.doc.horizontal" color={color} />
+        }}
+      />
+      <Tabs.Screen
         name="training"
         options={{
           title: 'トレーニング',
