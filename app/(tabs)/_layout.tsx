@@ -19,32 +19,28 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: '提案',
+          title: 'Today',
           tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="list.bullet.rectangle" color={color} />
+            <IconSymbol size={28} name="figure.run" color={color} />
           ),
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="weekly"
         options={{
-          title: '冷蔵庫',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="refrigerator" color={color} />,
+          title: 'This Week',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="calendar" color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="history"
         options={{
-          title: '履歴',
+          title: 'History',
           tabBarIcon: ({ color }) => (
-            <IconSymbol size={28} name="chart.bar.doc.horizontal" color={color} />
-        }}
-      />
-      <Tabs.Screen
-        name="training"
-        options={{
-          title: 'トレーニング',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="checkmark" color={color} />,
+            <IconSymbol size={28} name="chart.bar.fill" color={color} />
+          ),
         }}
       />
     </Tabs>

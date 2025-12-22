@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "makanai-flow",
-    "slug": "makanai-flow",
+    "name": "kaizen-body",
+    "slug": "kaizen-body",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "makanaiflow",
+    "scheme": "kaizenbody",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
@@ -38,7 +38,8 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,10 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useState } from 'react';
 import {
+  Animated,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,16 +13,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useThemeColor } from '@/hooks/use-theme-color';
-
-type UserProfile = {
-  gender: string;
-  age: number;
-  height: number;
-  weight: number;
-  goal: string;
-  environment: string;
-  sessionMinutes: number;
-};
+import { getProfile, saveProfile, setOnboardingComplete, type UserProfile } from '@/lib/database';
 
 const GENDER_OPTIONS = [
   { key: 'male', label: '男性' },
@@ -32,27 +22,30 @@ const GENDER_OPTIONS = [
 ];
 
 const GOAL_OPTIONS = [
-  { key: '筋肥大', label: '筋肥大' },
-  { key: '体力向上', label: '体力向上' },
-  { key: '体型維持', label: '体型維持' },
+  { key: '筋肥大', label: '筋肥大', description: '筋肉量を増やしたい' },
+  { key: '体力向上', label: '体力向上', description: 'スタミナをつけたい' },
+  { key: '体型維持', label: '体型維持', description: '今の体型をキープしたい' },
 ];
 
 const ENVIRONMENT_OPTIONS = [
-  { key: '自宅（自重）', label: '自宅（自重）' },
-  { key: 'ジム（マシンあり）', label: 'ジム（マシンあり）' },
+  { key: '自宅（自重）', label: '自宅（自重）', description: '器具なしで自宅トレーニング' },
+  { key: 'ジム（マシンあり）', label: 'ジム', description: 'マシンや器具が使える環境' },
 ];
 
 const SESSION_OPTIONS = [
-  { key: 20, label: '20分' },
-  { key: 40, label: '40分' },
-  { key: 60, label: '60分' },
+  { key: 20, label: '20分', description: 'サクッと短時間で' },
+  { key: 40, label: '40分', description: 'バランスよく' },
+  { key: 60, label: '60分', description: 'しっかりと' },
 ];
+
+const TOTAL_STEPS = 7;
 
 export default function OnboardingScreen() {
   const backgroundColor = useThemeColor({}, 'background');
   const textColor = useThemeColor({}, 'text');
   const insets = useSafeAreaInsets();
 
+  const [currentStep, setCurrentStep] = useState(1);
   const [gender, setGender] = useState('');
   const [age, setAge] = useState('');
   const [height, setHeight] = useState('');
@@ -61,57 +54,85 @@ export default function OnboardingScreen() {
   const [environment, setEnvironment] = useState('');
   const [sessionMinutes, setSessionMinutes] = useState<number | null>(null);
 
+  const fadeAnim = useState(new Animated.Value(1))[0];
+
   useEffect(() => {
-    const loadProfile = async () => {
+    const loadExistingProfile = () => {
       try {
-        const saved = await AsyncStorage.getItem('user_profile');
+        const saved = getProfile();
         if (saved) {
-          const parsed: UserProfile = JSON.parse(saved);
-          setGender(parsed.gender ?? '');
-          setAge(parsed.age ? String(parsed.age) : '');
-          setHeight(parsed.height ? String(parsed.height) : '');
-          setWeight(parsed.weight ? String(parsed.weight) : '');
-          setGoal(parsed.goal ?? '');
-          setEnvironment(parsed.environment ?? '');
-          setSessionMinutes(parsed.sessionMinutes ?? null);
+          setGender(saved.gender ?? '');
+          setAge(saved.age ? String(saved.age) : '');
+          setHeight(saved.height ? String(saved.height) : '');
+          setWeight(saved.weight ? String(saved.weight) : '');
+          setGoal(saved.goal ?? '');
+          setEnvironment(saved.environment ?? '');
+          setSessionMinutes(saved.sessionMinutes ?? null);
         }
       } catch (error) {
         console.warn('プロフィールの読み込みに失敗しました', error);
       }
     };
 
-    loadProfile();
+    loadExistingProfile();
   }, []);
+
+  const animateTransition = (callback: () => void) => {
+    Animated.sequence([
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+    setTimeout(callback, 150);
+  };
 
   const numericAge = useMemo(() => Number(age), [age]);
   const numericHeight = useMemo(() => Number(height), [height]);
   const numericWeight = useMemo(() => Number(weight), [weight]);
 
-  const isValid = useMemo(() => {
-    return (
-      gender !== '' &&
-      goal !== '' &&
-      environment !== '' &&
-      sessionMinutes !== null &&
-      !Number.isNaN(numericAge) &&
-      !Number.isNaN(numericHeight) &&
-      !Number.isNaN(numericWeight) &&
-      numericAge > 0 &&
-      numericHeight > 0 &&
-      numericWeight > 0
-    );
-  }, [
-    environment,
-    gender,
-    goal,
-    numericAge,
-    numericHeight,
-    numericWeight,
-    sessionMinutes,
-  ]);
+  const isCurrentStepValid = useMemo(() => {
+    switch (currentStep) {
+      case 1:
+        return gender !== '';
+      case 2:
+        return !Number.isNaN(numericAge) && numericAge > 0 && numericAge < 120;
+      case 3:
+        return !Number.isNaN(numericHeight) && numericHeight > 50 && numericHeight < 250;
+      case 4:
+        return !Number.isNaN(numericWeight) && numericWeight > 20 && numericWeight < 300;
+      case 5:
+        return goal !== '';
+      case 6:
+        return environment !== '';
+      case 7:
+        return sessionMinutes !== null;
+      default:
+        return false;
+    }
+  }, [currentStep, gender, numericAge, numericHeight, numericWeight, goal, environment, sessionMinutes]);
 
-  const handleComplete = async () => {
-    if (!isValid || sessionMinutes === null) return;
+  const handleNext = () => {
+    if (!isCurrentStepValid) return;
+    if (currentStep < TOTAL_STEPS) {
+      animateTransition(() => setCurrentStep(currentStep + 1));
+    }
+  };
+
+  const handleBack = () => {
+    if (currentStep > 1) {
+      animateTransition(() => setCurrentStep(currentStep - 1));
+    }
+  };
+
+  const handleComplete = () => {
+    if (!isCurrentStepValid || sessionMinutes === null) return;
 
     const profile: UserProfile = {
       gender,
@@ -124,133 +145,257 @@ export default function OnboardingScreen() {
     };
 
     try {
-      await AsyncStorage.setItem('user_profile', JSON.stringify(profile));
-      await AsyncStorage.setItem('onboarding_complete', 'true');
+      saveProfile(profile);
+      setOnboardingComplete();
       router.replace('/(tabs)');
     } catch (error) {
       console.error('Failed to save profile:', error);
     }
   };
 
-  const renderOptionRow = (
-    options: { key: string | number; label: string }[],
-    selected: string | number | null,
-    onSelect: (key: string | number) => void
-  ) => (
-    <View style={styles.optionRow}>
-      {options.map((option) => {
-        const isSelected = selected === option.key;
-        return (
-          <TouchableOpacity
-            key={option.key}
-            style={[
-              styles.optionButton,
-              isSelected && styles.optionButtonSelected,
-              { borderColor: isSelected ? '#FF6B35' : textColor + '20' },
-            ]}
-            onPress={() => onSelect(option.key)}
-            activeOpacity={0.8}
-          >
-            <Text
-              style={[
-                styles.optionLabel,
-                { color: isSelected ? '#FF6B35' : textColor },
-              ]}
-            >
-              {option.label}
-            </Text>
-          </TouchableOpacity>
-        );
-      })}
+  const renderProgressBar = () => (
+    <View style={styles.progressContainer}>
+      <View style={styles.progressBar}>
+        <View
+          style={[
+            styles.progressFill,
+            { width: `${(currentStep / TOTAL_STEPS) * 100}%` },
+          ]}
+        />
+      </View>
+      <Text style={[styles.progressText, { color: textColor + '80' }]}>
+        {currentStep} / {TOTAL_STEPS}
+      </Text>
     </View>
   );
 
-  const renderNumberField = (
-    label: string,
+  const renderOptionButton = (
+    option: { key: string | number; label: string; description?: string },
+    selected: string | number | null,
+    onSelect: (key: string | number) => void,
+    large?: boolean
+  ) => {
+    const isSelected = selected === option.key;
+    return (
+      <TouchableOpacity
+        key={option.key}
+        style={[
+          large ? styles.largeOptionButton : styles.optionButton,
+          isSelected && styles.optionButtonSelected,
+          { borderColor: isSelected ? '#FF6B35' : textColor + '20' },
+        ]}
+        onPress={() => onSelect(option.key)}
+        activeOpacity={0.8}
+      >
+        <Text
+          style={[
+            styles.optionLabel,
+            { color: isSelected ? '#FF6B35' : textColor },
+          ]}
+        >
+          {option.label}
+        </Text>
+        {option.description && (
+          <Text style={[styles.optionDescription, { color: textColor + '60' }]}>
+            {option.description}
+          </Text>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
+  const renderNumberInput = (
     value: string,
     unit: string,
-    onChange: (text: string) => void
+    onChange: (text: string) => void,
+    placeholder: string
   ) => (
-    <View style={styles.inputGroup}>
-      <Text style={[styles.label, { color: textColor }]}>{label}</Text>
-      <View style={styles.inputWithUnit}>
-        <TextInput
-          value={value}
-          onChangeText={onChange}
-          keyboardType="numeric"
-          placeholder="0"
-          style={[styles.input, { color: textColor, borderColor: textColor + '20' }]}
-        />
-        <Text style={[styles.unitLabel, { color: textColor }]}>{unit}</Text>
-      </View>
+    <View style={styles.numberInputContainer}>
+      <TextInput
+        value={value}
+        onChangeText={onChange}
+        keyboardType="numeric"
+        placeholder={placeholder}
+        placeholderTextColor={textColor + '40'}
+        style={[
+          styles.numberInput,
+          { color: textColor, borderColor: textColor + '20' },
+        ]}
+        autoFocus
+      />
+      <Text style={[styles.unitLabel, { color: textColor }]}>{unit}</Text>
     </View>
   );
+
+  const renderStepContent = () => {
+    switch (currentStep) {
+      case 1:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={[styles.stepTitle, { color: textColor }]}>
+              性別を教えてください
+            </Text>
+            <Text style={[styles.stepSubtitle, { color: textColor + '70' }]}>
+              トレーニングメニューの最適化に使用します
+            </Text>
+            <View style={styles.optionsContainer}>
+              {GENDER_OPTIONS.map((option) =>
+                renderOptionButton(option, gender, (key) => setGender(String(key)), true)
+              )}
+            </View>
+          </View>
+        );
+
+      case 2:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={[styles.stepTitle, { color: textColor }]}>
+              年齢を教えてください
+            </Text>
+            <Text style={[styles.stepSubtitle, { color: textColor + '70' }]}>
+              適切な運動強度を提案するために使用します
+            </Text>
+            {renderNumberInput(age, '歳', setAge, '25')}
+          </View>
+        );
+
+      case 3:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={[styles.stepTitle, { color: textColor }]}>
+              身長を教えてください
+            </Text>
+            <Text style={[styles.stepSubtitle, { color: textColor + '70' }]}>
+              体格に合わせた提案をします
+            </Text>
+            {renderNumberInput(height, 'cm', setHeight, '170')}
+          </View>
+        );
+
+      case 4:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={[styles.stepTitle, { color: textColor }]}>
+              体重を教えてください
+            </Text>
+            <Text style={[styles.stepSubtitle, { color: textColor + '70' }]}>
+              消費カロリーの計算に使用します
+            </Text>
+            {renderNumberInput(weight, 'kg', setWeight, '65')}
+          </View>
+        );
+
+      case 5:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={[styles.stepTitle, { color: textColor }]}>
+              目標を教えてください
+            </Text>
+            <Text style={[styles.stepSubtitle, { color: textColor + '70' }]}>
+              目標に合わせたメニューを提案します
+            </Text>
+            <View style={styles.optionsContainer}>
+              {GOAL_OPTIONS.map((option) =>
+                renderOptionButton(option, goal, (key) => setGoal(String(key)), true)
+              )}
+            </View>
+          </View>
+        );
+
+      case 6:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={[styles.stepTitle, { color: textColor }]}>
+              トレーニング環境は？
+            </Text>
+            <Text style={[styles.stepSubtitle, { color: textColor + '70' }]}>
+              使える器具に合わせたメニューを提案します
+            </Text>
+            <View style={styles.optionsContainer}>
+              {ENVIRONMENT_OPTIONS.map((option) =>
+                renderOptionButton(option, environment, (key) => setEnvironment(String(key)), true)
+              )}
+            </View>
+          </View>
+        );
+
+      case 7:
+        return (
+          <View style={styles.stepContent}>
+            <Text style={[styles.stepTitle, { color: textColor }]}>
+              1回あたりの時間は？
+            </Text>
+            <Text style={[styles.stepSubtitle, { color: textColor + '70' }]}>
+              時間内に収まるメニューを提案します
+            </Text>
+            <View style={styles.optionsContainer}>
+              {SESSION_OPTIONS.map((option) =>
+                renderOptionButton(option, sessionMinutes, (key) => setSessionMinutes(Number(key)), true)
+              )}
+            </View>
+          </View>
+        );
+
+      default:
+        return null;
+    }
+  };
 
   return (
     <View
-      style={[styles.container, { backgroundColor, paddingTop: Math.max(insets.top, 16) }]}
+      style={[
+        styles.container,
+        { backgroundColor, paddingTop: Math.max(insets.top, 16) },
+      ]}
     >
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={24}
       >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          <View style={styles.header}>
-            <Text style={[styles.logo, { color: textColor }]}>MAKANAI</Text>
-            <Text style={[styles.tagline, { color: textColor, opacity: 0.6 }]}>AI生成のための基本情報</Text>
-          </View>
+        <View style={styles.header}>
+          <Text style={[styles.logo, { color: textColor }]}>KAIZEN</Text>
+          {renderProgressBar()}
+        </View>
 
-          <View style={styles.section}>
-            <Text style={[styles.sectionTitle, { color: textColor }]}>プロフィール</Text>
-            <Text style={[styles.hint, { color: textColor, opacity: 0.6 }]}>必須項目を入力してください</Text>
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: textColor }]}>性別</Text>
-            {renderOptionRow(GENDER_OPTIONS, gender, (key) => setGender(String(key)))}
-          </View>
-
-          {renderNumberField('年齢', age, '歳', setAge)}
-          {renderNumberField('身長', height, 'cm', setHeight)}
-          {renderNumberField('体重', weight, 'kg', setWeight)}
-
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: textColor }]}>目標</Text>
-            {renderOptionRow(GOAL_OPTIONS, goal, (key) => setGoal(String(key)))}
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: textColor }]}>トレーニング環境</Text>
-            {renderOptionRow(
-              ENVIRONMENT_OPTIONS,
-              environment,
-              (key) => setEnvironment(String(key))
-            )}
-          </View>
-
-          <View style={styles.inputGroup}>
-            <Text style={[styles.label, { color: textColor }]}>1回あたりの時間</Text>
-            {renderOptionRow(SESSION_OPTIONS, sessionMinutes, (key) =>
-              setSessionMinutes(Number(key))
-            )}
-          </View>
-        </ScrollView>
+        <Animated.View style={[styles.contentArea, { opacity: fadeAnim }]}>
+          {renderStepContent()}
+        </Animated.View>
 
         <View
-          style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24), borderTopColor: textColor + '10' }]}
+          style={[
+            styles.footer,
+            { paddingBottom: Math.max(insets.bottom, 24) },
+          ]}
         >
-          <TouchableOpacity
-            style={[styles.continueButton, !isValid && styles.continueButtonDisabled]}
-            onPress={handleComplete}
-            disabled={!isValid}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.continueButtonText}>保存してはじめる</Text>
-          </TouchableOpacity>
+          <View style={styles.buttonRow}>
+            {currentStep > 1 && (
+              <TouchableOpacity
+                style={[styles.backButton, { borderColor: textColor + '30' }]}
+                onPress={handleBack}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.backButtonText, { color: textColor }]}>
+                  戻る
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity
+              style={[
+                styles.nextButton,
+                currentStep === 1 && styles.nextButtonFull,
+                !isCurrentStepValid && styles.nextButtonDisabled,
+              ]}
+              onPress={currentStep === TOTAL_STEPS ? handleComplete : handleNext}
+              disabled={!isCurrentStepValid}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.nextButtonText}>
+                {currentStep === TOTAL_STEPS ? '保存してはじめる' : '次へ'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </View>
@@ -264,99 +409,143 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 12,
-  },
   header: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 8,
     alignItems: 'center',
-    marginBottom: 24,
   },
   logo: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '700',
     letterSpacing: 3,
-  },
-  tagline: {
-    fontSize: 14,
-    marginTop: 6,
-  },
-  section: {
-    marginBottom: 12,
-    alignItems: 'flex-start',
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-  },
-  hint: {
-    fontSize: 13,
-    marginTop: 4,
-  },
-  inputGroup: {
     marginBottom: 20,
   },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 10,
+  progressContainer: {
+    width: '100%',
+    alignItems: 'center',
+    gap: 8,
   },
-  optionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
+  progressBar: {
+    width: '100%',
+    height: 6,
+    backgroundColor: '#E5E5E5',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#FF6B35',
+    borderRadius: 3,
+  },
+  progressText: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  contentArea: {
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  stepContent: {
+    alignItems: 'center',
+  },
+  stepTitle: {
+    fontSize: 26,
+    fontWeight: '700',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  stepSubtitle: {
+    fontSize: 15,
+    textAlign: 'center',
+    marginBottom: 40,
+  },
+  optionsContainer: {
+    width: '100%',
+    gap: 12,
   },
   optionButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     borderRadius: 12,
     borderWidth: 2,
-    minWidth: 90,
+    alignItems: 'center',
+  },
+  largeOptionButton: {
+    paddingVertical: 18,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    borderWidth: 2,
     alignItems: 'center',
   },
   optionButtonSelected: {
     backgroundColor: '#FF6B3515',
   },
   optionLabel: {
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '600',
   },
-  inputWithUnit: {
+  optionDescription: {
+    fontSize: 13,
+    marginTop: 4,
+  },
+  numberInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    justifyContent: 'center',
+    gap: 12,
   },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 16,
+  numberInput: {
+    width: 140,
+    borderWidth: 2,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    fontSize: 32,
+    fontWeight: '600',
+    textAlign: 'center',
     backgroundColor: 'transparent',
   },
   unitLabel: {
-    fontSize: 16,
+    fontSize: 24,
     fontWeight: '600',
   },
   footer: {
     paddingHorizontal: 24,
-    paddingTop: 12,
-    borderTopWidth: 1,
+    paddingTop: 16,
   },
-  continueButton: {
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  backButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+  },
+  backButtonText: {
+    fontSize: 17,
+    fontWeight: '600',
+  },
+  nextButton: {
+    flex: 2,
     backgroundColor: '#FF6B35',
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
   },
-  continueButtonDisabled: {
+  nextButtonFull: {
+    flex: 1,
+  },
+  nextButtonDisabled: {
     backgroundColor: '#FF6B3540',
   },
-  continueButtonText: {
+  nextButtonText: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: '700',
   },
 });

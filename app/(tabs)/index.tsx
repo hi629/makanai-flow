@@ -1,11 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useMemo, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback, useMemo, useState } from 'react';
 import {
-  Modal,
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -13,567 +11,645 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColor } from '@/hooks/use-theme-color';
+import {
+  getDailyLogs,
+  getProfile,
+  getTodayLog,
+  getWeeklyPlan,
+  saveDailyLog,
+  saveFeedback,
+  saveWeeklyPlan,
+  type DayPlan as DBDayPlan,
+} from '@/lib/database';
 
-const quickIngredientOptions = ['chicken', 'onion', 'rice', 'yogurt', 'tomato', 'egg', 'spinach'];
-
-const comfortLevels = [
-  { key: 'low', label: '現地寄せ', description: 'ローカル味でもOK' },
-  { key: 'medium', label: 'どちらでも', description: '慣れた味と現地の間' },
-  { key: 'high', label: '慣れ重視', description: '馴染みの味を優先' },
-];
-
-const fridgeInventory = [
-  { name: '鶏もも肉', purchasedAt: '2024-05-31', priority: 'red' as const },
-  { name: 'ヨーグルト', purchasedAt: '2024-06-01', priority: 'yellow' as const },
-  { name: '玉ねぎ', purchasedAt: '2024-05-28', priority: 'green' as const },
-  { name: 'ほうれん草', purchasedAt: '2024-06-02', priority: 'yellow' as const },
-];
-
-const priorityCopy = {
-  red: '優先消費',
-  yellow: 'なるべく早く',
-  green: '余裕あり',
+type Exercise = {
+  id: string;
+  name: string;
+  sets: number;
+  reps: number;
+  rest: number;
 };
 
-type EffortLevel = 'low' | 'normal' | 'high';
-
-type MealIdea = {
-  title: string;
-  used: string[];
-  missing: string[];
-  steps: string[];
-  effortTag: string;
-  safety: string;
+// 初心者向けエクササイズ説明
+const EXERCISE_GUIDE: Record<string, { shortDesc: string; howTo: string; tips: string }> = {
+  // 自重系
+  pushup: {
+    shortDesc: '胸を押す',
+    howTo: '両手を肩幅より少し広めに床につき、体をまっすぐに保ちながら腕を曲げて体を下ろし、押し上げます。',
+    tips: '腰が落ちないように！きつい場合は膝をついてOK',
+  },
+  pike: {
+    shortDesc: '肩を押す',
+    howTo: 'お尻を高く上げた逆V字の姿勢から、頭を床に近づけるように腕を曲げ、押し上げます。',
+    tips: '肩を鍛える種目。頭を床に近づけるイメージで',
+  },
+  dips: {
+    shortDesc: '二の腕を押す',
+    howTo: '椅子の端に手をつき、お尻を前に出して腕で体を支え、肘を曲げて体を下ろし、押し上げます。',
+    tips: '二の腕の裏側に効きます。肘は後ろに曲げる',
+  },
+  invrow: {
+    shortDesc: '背中を引く',
+    howTo: 'テーブルの下に仰向けで入り、端を掴んで胸をテーブルに引き寄せます。',
+    tips: '背中を鍛える種目。体はまっすぐキープ',
+  },
+  superman: {
+    shortDesc: '背中を伸ばす',
+    howTo: 'うつ伏せになり、両腕と両脚を同時に床から持ち上げて数秒キープします。',
+    tips: '背中とお尻に力を入れて。首は自然な位置に',
+  },
+  backext: {
+    shortDesc: '背中を起こす',
+    howTo: 'うつ伏せで手を頭の後ろに組み、上半身を床から持ち上げてゆっくり戻します。',
+    tips: '急に上げすぎない。腰に負担がかからない範囲で',
+  },
+  squat: {
+    shortDesc: '太ももを使う',
+    howTo: '足を肩幅に開き、お尻を後ろに引きながら膝を曲げて腰を落とし、立ち上がります。',
+    tips: '膝がつま先より前に出すぎないように。太ももが床と平行になるまで',
+  },
+  lunge: {
+    shortDesc: '片足で踏み込む',
+    howTo: '片足を大きく前に踏み出し、後ろ足の膝が床に近づくまで腰を落とし、元に戻ります。',
+    tips: '前膝は90度。上半身はまっすぐキープ',
+  },
+  plank: {
+    shortDesc: '体幹をキープ',
+    howTo: '肘を肩の真下につき、つま先と肘で体を支え、頭からかかとまで一直線をキープします。',
+    tips: 'お腹に力を入れて腰が落ちないように。秒数は目安',
+  },
+  burpee: {
+    shortDesc: '全身を動かす',
+    howTo: '立った状態→しゃがんで手を床→足を後ろへ→腕立て→足を戻す→ジャンプ、を繰り返します。',
+    tips: '全身運動！無理せず自分のペースで',
+  },
+  jumpsquat: {
+    shortDesc: 'ジャンプで鍛える',
+    howTo: 'スクワットの姿勢から、立ち上がる時にジャンプし、着地したらすぐにスクワットに入ります。',
+    tips: '着地は柔らかく。膝を痛めないように注意',
+  },
+  mtclimb: {
+    shortDesc: '膝を引きつける',
+    howTo: '腕立ての姿勢から、左右の膝を交互に胸に引きつけます。',
+    tips: '腰を上げすぎない。リズミカルに',
+  },
+  crunch: {
+    shortDesc: 'お腹を縮める',
+    howTo: '仰向けで膝を曲げ、手を頭の後ろに。肩甲骨が浮く程度まで上体を起こし、戻します。',
+    tips: '首を引っ張らない。おへそを見るイメージ',
+  },
+  legrise: {
+    shortDesc: '脚を持ち上げる',
+    howTo: '仰向けで両脚を伸ばし、床から脚を持ち上げて90度まで上げ、ゆっくり戻します。',
+    tips: '腰が浮かないように！きつい場合は膝を曲げてOK',
+  },
+  calf: {
+    shortDesc: 'ふくらはぎを鍛える',
+    howTo: '壁に手をついて立ち、かかとを上げてつま先立ちになり、ゆっくり戻します。',
+    tips: 'ふくらはぎを意識。段差を使うとより効果的',
+  },
+  // ジム系
+  bench: {
+    shortDesc: '胸を押す',
+    howTo: 'ベンチに仰向けになり、バーを肩幅より広めに握り、胸に下ろして押し上げます。',
+    tips: '足は床につけて安定させる。補助者がいると安心',
+  },
+  incline: {
+    shortDesc: '胸の上部を押す',
+    howTo: '傾斜のついたベンチで、ダンベルを胸の横から上に押し上げます。',
+    tips: '胸の上部を鍛える種目。肘は下ろしすぎない',
+  },
+  tricep: {
+    shortDesc: '二の腕を伸ばす',
+    howTo: 'ケーブルマシンで、肘を固定したまま腕を下に伸ばし、ゆっくり戻します。',
+    tips: '肘は動かさない。二の腕の裏側を意識',
+  },
+  latpull: {
+    shortDesc: '背中を引く',
+    howTo: 'バーを肩幅より広めに握り、胸を張りながらバーを鎖骨に引きつけます。',
+    tips: '背中で引くイメージ。腕の力だけで引かない',
+  },
+  row: {
+    shortDesc: '背中を引く',
+    howTo: '座った状態でハンドルを握り、胸を張りながら肘を引いてお腹に近づけます。',
+    tips: '肩甲骨を寄せる。背中の筋肉を使う',
+  },
+  curl: {
+    shortDesc: '腕を曲げる',
+    howTo: 'ダンベルを持ち、肘を固定したまま腕を曲げてダンベルを肩に近づけます。',
+    tips: '反動を使わない。ゆっくり戻すのがポイント',
+  },
+  legpress: {
+    shortDesc: '脚を押す',
+    howTo: 'シートに座り、足を肩幅でプレートにつけ、膝を曲げて伸ばす動作を繰り返します。',
+    tips: '膝を完全に伸ばし切らない。腰を浮かせない',
+  },
+  shoulder: {
+    shortDesc: '肩を押し上げる',
+    howTo: 'ダンベルを肩の高さに構え、頭上に押し上げて戻します。',
+    tips: '腰を反らさない。まっすぐ上に押す',
+  },
 };
 
-type FlowPayload = {
-  mode: 'fridge' | 'supermarket';
-  ingredientsInput: string;
-  effort: EffortLevel;
-  localOk: boolean;
-  comfortPriority: 'low' | 'medium' | 'high';
-  country: string;
+type DayPlan = {
+  dayOfWeek: string;
+  date: string;
+  bodyPart: string;
+  totalMinutes: number;
+  isRestDay: boolean;
 };
 
-type AppStep = 'start' | 'ingredients' | 'prep' | 'suggestions';
+type Feedback = 'hard' | 'normal' | 'easy' | null;
 
-const ideaPool: MealIdea[] = [
-  {
-    title: '温かいヨーグルトマリネ焼き',
-    used: ['chicken', 'yogurt', 'onion'],
-    missing: ['flatbread'],
-    steps: [
-      '鶏肉をヨーグルトと塩で10分漬ける',
-      '玉ねぎと一緒に焼き色をつける',
-      'フラットブレッドで巻く',
-      '酸味が強い時は塩を足す',
-      'ヨーグルトは焦げやすいので弱火',
-    ],
-    effortTag: '手間:低 / 回復度:やさしい',
-    safety: '焦げ防止に弱火。味は塩で微調整',
-  },
-  {
-    title: '玉ねぎ甘辛炒めのワンプレート',
-    used: ['onion', 'rice', 'egg'],
-    missing: ['soy sauce'],
-    steps: [
-      '玉ねぎを多めの油でしんなりまで炒める',
-      '卵を半熟まで絡める',
-      'ご飯に乗せてソースを回しかける',
-      '青みが欲しければ冷凍野菜を足す',
-      '器は1枚にまとめる',
-    ],
-    effortTag: '手間:ふつう / 回復度:中',
-    safety: '水分を飛ばしすぎないと失敗しにくい',
-  },
-  {
-    title: '市場風トマトスープ',
-    used: ['tomato', 'spinach', 'onion'],
-    missing: ['stock cube', 'bread'],
-    steps: [
-      '玉ねぎとトマトを刻んで煮る',
-      'スープの素で味を合わせる',
-      'ほうれん草を最後に入れて色を残す',
-      'パンを添えて主食代わりに',
-      '辛味は胡椒だけで簡単に',
-    ],
-    effortTag: '手間:低 / 回復度:温かい',
-    safety: '味が薄いときは塩ではなく旨味を足す',
-  },
-  {
-    title: '素朴な野菜炒めプレート',
-    used: ['spinach', 'onion', 'egg'],
-    missing: ['bread'],
-    steps: [
-      '玉ねぎを油で甘くなるまで炒める',
-      '卵でとじてふんわり仕上げる',
-      '最後にほうれん草をさっと合わせる',
-      'パンかご飯に乗せてワンプレートに',
-      '味は塩コショウのみで完結',
-    ],
-    effortTag: '手間:低 / 回復度:軽め',
-    safety: '火を入れすぎず色を残す',
-  },
-];
+// 種目データベース
+const EXERCISE_DB: Record<string, Exercise[]> = {
+  '胸・三頭筋': [
+    { id: 'bench', name: 'ベンチプレス', sets: 3, reps: 10, rest: 90 },
+    { id: 'incline', name: 'インクラインダンベル', sets: 3, reps: 12, rest: 60 },
+    { id: 'tricep', name: 'トライセプスプッシュダウン', sets: 3, reps: 15, rest: 45 },
+  ],
+  '背中・二頭筋': [
+    { id: 'latpull', name: 'ラットプルダウン', sets: 3, reps: 12, rest: 60 },
+    { id: 'row', name: 'シーテッドロウ', sets: 3, reps: 12, rest: 60 },
+    { id: 'curl', name: 'ダンベルカール', sets: 3, reps: 12, rest: 45 },
+  ],
+  '脚・臀部': [
+    { id: 'squat', name: 'スクワット', sets: 4, reps: 10, rest: 90 },
+    { id: 'legpress', name: 'レッグプレス', sets: 3, reps: 12, rest: 60 },
+    { id: 'lunge', name: 'ランジ', sets: 3, reps: 10, rest: 60 },
+  ],
+  'プッシュ系': [
+    { id: 'pushup', name: 'Push-up', sets: 3, reps: 12, rest: 60 },
+    { id: 'pike', name: 'Pike Push-up', sets: 3, reps: 10, rest: 60 },
+    { id: 'dips', name: 'Chair Dips', sets: 3, reps: 12, rest: 45 },
+  ],
+  'プル系': [
+    { id: 'invrow', name: 'Inverted Row', sets: 3, reps: 12, rest: 60 },
+    { id: 'superman', name: 'Superman Hold', sets: 3, reps: 15, rest: 45 },
+    { id: 'backext', name: 'Back Extension', sets: 3, reps: 15, rest: 45 },
+  ],
+  '脚・体幹': [
+    { id: 'squat', name: 'Squat', sets: 4, reps: 15, rest: 60 },
+    { id: 'lunge', name: 'Lunge', sets: 3, reps: 12, rest: 60 },
+    { id: 'plank', name: 'Plank', sets: 3, reps: 45, rest: 45 },
+  ],
+  '全身HIIT': [
+    { id: 'burpee', name: 'Burpee', sets: 4, reps: 10, rest: 30 },
+    { id: 'jumpsquat', name: 'Jump Squat', sets: 3, reps: 15, rest: 30 },
+    { id: 'mtclimb', name: 'Mountain Climber', sets: 3, reps: 20, rest: 30 },
+  ],
+  'コア強化': [
+    { id: 'plank', name: 'Plank', sets: 3, reps: 60, rest: 45 },
+    { id: 'crunch', name: 'Crunch', sets: 3, reps: 20, rest: 30 },
+    { id: 'legrise', name: 'Leg Raise', sets: 3, reps: 15, rest: 45 },
+  ],
+  '全身': [
+    { id: 'squat', name: 'Squat', sets: 3, reps: 12, rest: 60 },
+    { id: 'pushup', name: 'Push-up', sets: 3, reps: 12, rest: 60 },
+    { id: 'plank', name: 'Plank', sets: 3, reps: 45, rest: 45 },
+  ],
+  '上半身': [
+    { id: 'pushup', name: 'Push-up', sets: 3, reps: 15, rest: 60 },
+    { id: 'row', name: 'Dumbbell Row', sets: 3, reps: 10, rest: 60 },
+    { id: 'shoulder', name: 'Shoulder Press', sets: 3, reps: 12, rest: 60 },
+  ],
+  '下半身': [
+    { id: 'squat', name: 'Squat', sets: 4, reps: 12, rest: 60 },
+    { id: 'lunge', name: 'Lunge', sets: 3, reps: 10, rest: 60 },
+    { id: 'calf', name: 'Calf Raise', sets: 3, reps: 20, rest: 30 },
+  ],
+};
 
-export default function HomeScreen() {
+const getExercisesForBodyPart = (bodyPart: string): Exercise[] => {
+  return EXERCISE_DB[bodyPart] || EXERCISE_DB['全身'];
+};
+
+export default function TodayScreen() {
+  const backgroundColor = useThemeColor({}, 'background');
   const textColor = useThemeColor({}, 'text');
-  const cardColor = useThemeColor({}, 'background');
   const insets = useSafeAreaInsets();
 
-  const [preferredCuisines, setPreferredCuisines] = useState<string[]>([]);
-  const [mode, setMode] = useState<'fridge' | 'supermarket'>('fridge');
-  const [ingredientsInput, setIngredientsInput] = useState('chicken, onion, yogurt');
-  const [effort, setEffort] = useState<EffortLevel>('low');
-  const [localOk, setLocalOk] = useState(true);
-  const [comfortPriority, setComfortPriority] = useState<'low' | 'medium' | 'high'>('medium');
-  const [country, setCountry] = useState('Georgia');
-  const [ideas, setIdeas] = useState<MealIdea[]>([]);
-  const [currentStep, setCurrentStep] = useState<AppStep>('start');
-  const [resumeFlow, setResumeFlow] = useState<FlowPayload | null>(null);
-  const [swapSheetOpen, setSwapSheetOpen] = useState(false);
-  const [swapSelection, setSwapSelection] = useState<string[]>([]);
-  const [fridgeModalVisible, setFridgeModalVisible] = useState(false);
+  const [todayPlan, setTodayPlan] = useState<DayPlan | null>(null);
+  const [dayNumber, setDayNumber] = useState(1);
+  const [exercises, setExercises] = useState<Exercise[]>([]);
+  const [completedIds, setCompletedIds] = useState<Set<string>>(new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [isCompleted, setIsCompleted] = useState(false);
+  const [feedback, setFeedback] = useState<Feedback>(null);
+  const [showFeedback, setShowFeedback] = useState(false);
 
-  useEffect(() => {
-    const loadPreferencesAndFlow = async () => {
-      const saved = await AsyncStorage.getItem('preferred_cuisines');
-      const lastFlow = await AsyncStorage.getItem('last_flow');
-
-      if (saved) {
+  useFocusEffect(
+    useCallback(() => {
+      const loadData = () => {
         try {
-          setPreferredCuisines(JSON.parse(saved));
-        } catch (error) {
-          console.warn('Failed to parse cuisines', error);
-        }
-      }
+          // 今日の完了状態を確認
+          const todayLog = getTodayLog();
+          if (todayLog?.completed) {
+            setIsCompleted(true);
+          } else {
+            setIsCompleted(false);
+          }
+          
+          // Day番号を計算（ログの長さ + 1）
+          const logs = getDailyLogs(30);
+          setDayNumber(logs.length + 1);
 
-      if (lastFlow) {
-        try {
-          setResumeFlow(JSON.parse(lastFlow));
+          const savedPlans = getWeeklyPlan();
+          const today = new Date();
+          const todayDateStr = `${today.getMonth() + 1}/${today.getDate()}`;
+
+          if (savedPlans.length > 0) {
+            // プランの日付が今日と一致するか確認
+            const todayPlanData = savedPlans.find(p => p.date === todayDateStr);
+            if (todayPlanData) {
+              setTodayPlan(todayPlanData);
+
+              if (!todayPlanData.isRestDay) {
+                const exerciseList = getExercisesForBodyPart(todayPlanData.bodyPart);
+                setExercises(exerciseList);
+              }
+            } else {
+              // プランが古い場合は再生成
+              regenerateAndSetPlan();
+            }
+          } else {
+            // プランがない場合は再生成
+            regenerateAndSetPlan();
+          }
         } catch (error) {
-          console.warn('Failed to parse last flow', error);
+          console.warn('Failed to load data', error);
+          // エラー時はデフォルトのトレーニングを設定
+          setDefaultTraining();
         }
-      }
     };
 
-    loadPreferencesAndFlow();
-  }, []);
+    const regenerateAndSetPlan = () => {
+      const today = new Date();
+      const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+      const REST_WEEKDAYS = [0, 2]; // 日曜日と火曜日が休息日
 
-  const parsedIngredients = useMemo(
-    () =>
-      ingredientsInput
-        .split(/[\,\n]/)
-        .map((item) => item.trim())
-        .filter(Boolean),
-    [ingredientsInput]
+      // ユーザープロフィールを読み込み
+      let sessionMinutes = 40;
+      let environment = '自宅（自重）';
+      const profile = getProfile();
+      if (profile) {
+        sessionMinutes = profile.sessionMinutes || 40;
+        environment = profile.environment || '自宅（自重）';
+      }
+
+      // 曜日ごとのトレーニング部位を取得
+      const getBodyPartForWeekday = (weekday: number): string => {
+        if (environment === 'ジム（マシンあり）') {
+          const gymParts: Record<number, string> = {
+            1: '胸・三頭筋',    // 月曜日
+            3: '脚・臀部',      // 水曜日（脚の日）
+            4: '背中・二頭筋',  // 木曜日
+            5: '肩・腹筋',      // 金曜日
+            6: '全身',          // 土曜日
+          };
+          return gymParts[weekday] || '全身';
+        } else {
+          const homeParts: Record<number, string> = {
+            1: 'プッシュ系',    // 月曜日
+            3: '脚・体幹',      // 水曜日（脚の日）
+            4: 'プル系',        // 木曜日
+            5: '全身HIIT',      // 金曜日
+            6: 'コア強化',      // 土曜日
+          };
+          return homeParts[weekday] || '全身';
+        }
+      };
+
+      const todayWeekday = today.getDay();
+      const isRestDay = REST_WEEKDAYS.includes(todayWeekday);
+      const bodyPart = isRestDay ? '休息日' : getBodyPartForWeekday(todayWeekday);
+
+      const defaultPlan: DayPlan = {
+        dayOfWeek: WEEKDAYS[todayWeekday],
+        date: `${today.getMonth() + 1}/${today.getDate()}`,
+        bodyPart,
+        totalMinutes: isRestDay ? 0 : sessionMinutes,
+        isRestDay,
+      };
+
+      setTodayPlan(defaultPlan);
+      if (!isRestDay) {
+        setExercises(getExercisesForBodyPart(bodyPart));
+      }
+
+      // 新しい週間プランを生成して保存
+      const newPlans: DBDayPlan[] = [];
+
+      for (let i = 0; i < 7; i++) {
+        const date = new Date(today);
+        date.setDate(today.getDate() + i);
+        const weekday = date.getDay();
+        const dayIsRestDay = REST_WEEKDAYS.includes(weekday);
+
+        newPlans.push({
+          dayOfWeek: WEEKDAYS[weekday],
+          date: `${date.getMonth() + 1}/${date.getDate()}`,
+          bodyPart: dayIsRestDay ? '休息日' : getBodyPartForWeekday(weekday),
+          totalMinutes: dayIsRestDay ? 0 : sessionMinutes,
+          isRestDay: dayIsRestDay,
+        });
+      }
+
+      saveWeeklyPlan(newPlans);
+    };
+
+    const setDefaultTraining = () => {
+      const today = new Date();
+      const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+      const defaultPlan: DayPlan = {
+        dayOfWeek: WEEKDAYS[today.getDay()],
+        date: `${today.getMonth() + 1}/${today.getDate()}`,
+        bodyPart: '上半身',
+        totalMinutes: 40,
+        isRestDay: false,
+      };
+      setTodayPlan(defaultPlan);
+      setExercises(getExercisesForBodyPart('上半身'));
+    };
+
+      loadData();
+    }, [])
   );
 
-  const buildIdeasFrom = (list: string[]): MealIdea[] => {
-    const ingredientSet = new Set(list);
+  const allFinished = useMemo(() => {
+    return exercises.length > 0 && completedIds.size === exercises.length;
+  }, [exercises, completedIds]);
 
-    return ideaPool
-      .map((idea) => {
-        const used = idea.used.filter((item) => ingredientSet.has(item));
-        const missing = idea.missing.filter((item) => !ingredientSet.has(item));
-
-        return {
-          ...idea,
-          used,
-          missing,
-        };
-      })
-      .filter((idea) => idea.used.length > 0 || idea.missing.length > 0)
-      .slice(0, 3);
+  const toggleExercise = (id: string) => {
+    setCompletedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
   };
 
-  const persistFlow = async (payload: FlowPayload) => {
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const handleComplete = () => {
+    // フィードバックを保存
+    if (feedback) {
+      try {
+        saveFeedback(feedback);
+      } catch (error) {
+        console.warn('Failed to save feedback', error);
+      }
+    }
+
+    setIsCompleted(true);
+
     try {
-      await AsyncStorage.setItem('last_flow', JSON.stringify(payload));
-      setResumeFlow(payload);
+      const today = new Date().toISOString().slice(0, 10);
+      saveDailyLog({ date: today, completed: true, feedback: feedback || undefined });
     } catch (error) {
-      console.warn('Failed to persist flow', error);
+      console.warn('Failed to save completion', error);
     }
   };
 
-  const handleGenerate = () => {
-    const generated = buildIdeasFrom(parsedIngredients);
-    setIdeas(generated);
-    setCurrentStep('suggestions');
-    persistFlow({ mode, ingredientsInput, effort, localOk, comfortPriority, country });
+  const resetToday = () => {
+    setIsCompleted(false);
+    setCompletedIds(new Set());
+
+    // 今日の完了状態をリセット
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      saveDailyLog({ date: today, completed: false });
+    } catch (error) {
+      console.warn('Failed to reset', error);
+    }
   };
 
-  const quickAddIngredient = (item: string) => {
-    if (parsedIngredients.includes(item)) return;
-    setIngredientsInput((prev) => (prev ? `${prev}, ${item}` : item));
-  };
-
-  const startWithMode = (selectedMode: 'fridge' | 'supermarket') => {
-    setMode(selectedMode);
-    setCurrentStep('ingredients');
-  };
-
-  const resumeLastFlow = () => {
-    if (!resumeFlow) return;
-    setMode(resumeFlow.mode);
-    setIngredientsInput(resumeFlow.ingredientsInput);
-    setEffort(resumeFlow.effort);
-    setLocalOk(resumeFlow.localOk);
-    setComfortPriority(resumeFlow.comfortPriority);
-    setCountry(resumeFlow.country);
-    const regenerated = buildIdeasFrom(
-      resumeFlow.ingredientsInput
-        .split(/[\,\n]/)
-        .map((item) => item.trim())
-        .filter(Boolean)
-    );
-    setIdeas(regenerated);
-    setCurrentStep('suggestions');
-  };
-
-  const shoppingList = useMemo(() => {
-    if (mode !== 'supermarket') return [] as string[];
-    const missingAll = ideas.flatMap((idea) => idea.missing);
-    return Array.from(new Set(missingAll)).filter(Boolean);
-  }, [ideas, mode]);
-
-  const applySwapSelection = () => {
-    const cleaned = swapSelection.filter(Boolean);
-    setIngredientsInput(cleaned.join(', '));
-    const regenerated = buildIdeasFrom(cleaned);
-    setIdeas(regenerated);
-    setSwapSheetOpen(false);
-  };
-
-  const renderStepIndicator = () => {
-    const steps: { key: AppStep; label: string }[] = [
-      { key: 'start', label: 'Start' },
-      { key: 'ingredients', label: '食材入力' },
-      { key: 'prep', label: 'Prep Sheet' },
-      { key: 'suggestions', label: '提案' },
-    ];
-
+  // 完了画面
+  if (isCompleted) {
     return (
-      <View style={styles.stepRow}>
-        {steps.map((step) => (
-          <View key={step.key} style={styles.stepItem}>
-            <View
-              style={[
-                styles.stepDot,
-                currentStep === step.key && styles.stepDotActive,
-              ]}
-            />
-            <Text
-              style={[
-                styles.stepLabel,
-                { color: currentStep === step.key ? '#0a7ea4' : textColor },
-              ]}
-            >
-              {step.label}
-            </Text>
+      <View style={[styles.container, styles.centeredContainer, { backgroundColor, paddingTop: Math.max(insets.top, 16) }]}>
+        <View style={styles.completedContent}>
+          <View style={styles.completedIcon}>
+            <IconSymbol name="checkmark" size={48} color="#fff" />
           </View>
-        ))}
+          <Text style={[styles.completedTitle, { color: textColor }]}>完了！</Text>
+          <Text style={[styles.completedSubtitle, { color: textColor + '70' }]}>
+            お疲れ様でした{'\n'}明日も頑張りましょう
+          </Text>
+          <TouchableOpacity
+            style={[styles.resetButton, { borderColor: textColor + '30' }]}
+            onPress={resetToday}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.resetButtonText, { color: textColor }]}>もう一度やる</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     );
-  };
+  }
 
-  const renderStartScreen = () => (
-    <View style={[styles.card, { backgroundColor: cardColor }]}>
-      <Text style={styles.cardTitle}>すぐに始める</Text>
-      <Text style={styles.helperText}>起点を選ぶと次に食材入力へ進みます</Text>
-      <View style={styles.row}>
-        <TouchableOpacity
-          style={[styles.quickCard, { borderColor: textColor + '20' }]}
-          onPress={() => startWithMode('fridge')}
-        >
-          <Text style={styles.modeEmoji}>🧊</Text>
-          <Text style={styles.modeLabel}>冷蔵庫のあるもので</Text>
-          <Text style={styles.modeHint}>余らせない / 1タップで開始</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.quickCard, { borderColor: textColor + '20' }]}
-          onPress={() => startWithMode('supermarket')}
-        >
-          <Text style={styles.modeEmoji}>🛒</Text>
-          <Text style={styles.modeLabel}>スーパーで買って</Text>
-          <Text style={styles.modeHint}>不足分だけのリスト生成</Text>
-        </TouchableOpacity>
-      </View>
-      <TouchableOpacity
-        style={[styles.resumeButton, !resumeFlow && styles.resumeButtonDisabled]}
-        onPress={resumeLastFlow}
-        disabled={!resumeFlow}
-      >
-        <IconSymbol name="play.fill" color="#fff" size={16} />
-        <Text style={styles.resumeText}>
-          {resumeFlow ? '前回の続きから再開' : '前回の続きはありません'}
-        </Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  const renderIngredientInput = () => (
-    <View style={[styles.card, { backgroundColor: cardColor }]}>
-      <Text style={styles.cardTitle}>食材入力（チェックリスト / テキスト）</Text>
-      <TextInput
-        value={ingredientsInput}
-        onChangeText={setIngredientsInput}
-        multiline
-        placeholder="chicken, onion, yogurt"
-        style={styles.input}
-      />
-      <View style={styles.quickList}>
-        {quickIngredientOptions.map((item) => (
-          <TouchableOpacity
-            key={item}
-            style={[styles.chip, parsedIngredients.includes(item) && styles.chipActive]}
-            onPress={() => quickAddIngredient(item)}
-          >
-            <Text style={[styles.chipText, parsedIngredients.includes(item) && { color: '#fff' }]}>
-              {item}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-      {mode === 'supermarket' && (
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>買いに行く場所</Text>
-          <TextInput
-            value={country}
-            onChangeText={setCountry}
-            placeholder="例: Georgia / Germany"
-            style={styles.input}
-          />
-          <Text style={styles.helperText}>現地で揃えやすい構成を優先します</Text>
-        </View>
-      )}
-      <View style={styles.footerRow}>
-        <TouchableOpacity style={styles.secondaryButton} onPress={() => setCurrentStep('start')}>
-          <Text style={styles.secondaryText}>戻る</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.primaryButton} onPress={() => setCurrentStep('prep')}>
-          <Text style={styles.primaryButtonText}>Prep Sheetへ</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderPrepSheet = () => (
-    <View style={[styles.card, { backgroundColor: cardColor }]}>
-      <Text style={styles.cardTitle}>Prep Sheet（状態入力）</Text>
-      <View style={styles.row}>
-        {(['low', 'normal', 'high'] as const).map((level) => (
-          <TouchableOpacity
-            key={level}
-            style={[styles.modeButton, effort === level && styles.modeButtonActive]}
-            onPress={() => setEffort(level)}
-          >
-            <Text style={styles.modeLabel}>
-              気力: {level === 'low' ? '低' : level === 'normal' ? '普通' : '高'}
-            </Text>
-            <Text style={styles.modeHint}>
-              {level === 'low' ? '洗い物を減らす' : level === 'normal' ? '定番通り' : '工程多めOK'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      <View style={styles.row}>
-        <TouchableOpacity
-          style={[styles.toggle, localOk ? styles.toggleActive : null]}
-          onPress={() => setLocalOk((prev) => !prev)}
-        >
-          <Text style={styles.toggleText}>現地味 OK</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.toggle, !localOk ? styles.toggleActive : null]}
-          onPress={() => setLocalOk((prev) => !prev)}
-        >
-          <Text style={styles.toggleText}>慣れた味 重視</Text>
-        </TouchableOpacity>
-      </View>
-
-      <Text style={styles.label}>慣れたい味の幅</Text>
-      <View style={styles.row}>
-        {comfortLevels.map((level) => (
-          <TouchableOpacity
-            key={level.key}
-            style={[styles.chipLarge, comfortPriority === level.key && styles.chipLargeActive]}
-            onPress={() => setComfortPriority(level.key as typeof comfortPriority)}
-          >
-            <Text style={styles.chipTitle}>{level.label}</Text>
-            <Text style={styles.chipDescription}>{level.description}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {preferredCuisines.length > 0 && (
-        <Text style={styles.helperText}>慣れた料理の方向性: {preferredCuisines.join(', ')}</Text>
-      )}
-
-      <View style={styles.footerRow}>
-        <TouchableOpacity style={styles.secondaryButton} onPress={() => setCurrentStep('ingredients')}>
-          <Text style={styles.secondaryText}>戻る</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.primaryButton} onPress={handleGenerate}>
-          <Text style={styles.primaryButtonText}>提案を生成</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-
-  const renderMealSuggestions = () => (
-    <View style={[styles.card, { backgroundColor: cardColor }]}>
-      <View style={styles.suggestionHeader}>
-        <View>
-          <Text style={styles.cardTitle}>今日〜明日の提案</Text>
-          <Text style={styles.helperText}>
-            {mode === 'fridge' ? 'あるもので回す' : `${country}で買いやすいものを優先`}
+  // 休息日画面
+  if (todayPlan?.isRestDay) {
+    return (
+      <View style={[styles.container, styles.centeredContainer, { backgroundColor, paddingTop: Math.max(insets.top, 16) }]}>
+        <View style={styles.restContent}>
+          <Text style={styles.restEmoji}>🧘</Text>
+          <Text style={[styles.restTitle, { color: textColor }]}>Rest Day</Text>
+          <Text style={[styles.restSubtitle, { color: textColor + '60' }]}>
+            今日は休息日です{'\n'}体を休めて明日に備えましょう
           </Text>
         </View>
-        <TouchableOpacity onPress={() => setFridgeModalVisible(true)}>
-          <Text style={styles.fridgeLink}>冷蔵庫を編集</Text>
-        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  // メイントレーニング画面
+  return (
+    <View style={[styles.container, { backgroundColor, paddingTop: Math.max(insets.top, 16) }]}>
+      {/* ① ヘッダー（最小） */}
+      <View style={styles.header}>
+        <Text style={[styles.headerTop, { color: textColor + '60' }]}>
+          Today • Day {dayNumber}
+        </Text>
+        <Text style={[styles.headerBodyPart, { color: textColor }]}>
+          {todayPlan?.bodyPart || 'Upper Body'}
+        </Text>
+        <Text style={[styles.headerTime, { color: textColor + '50' }]}>
+          約{todayPlan?.totalMinutes || 40}分
+        </Text>
       </View>
 
-      {ideas.length === 0 && (
-        <Text style={styles.helperText}>提案を表示するには「提案を生成」を押してください</Text>
-      )}
-
-      {ideas.map((idea, index) => (
-        <View key={idea.title} style={styles.ideaCard}>
-          <View style={styles.ideaHeader}>
-            <Text style={styles.ideaTitle}>{idea.title}</Text>
-            <Text style={styles.ideaEffort}>{idea.effortTag}</Text>
-          </View>
-          <Text style={styles.sectionLabel}>使うもの</Text>
-          <Text style={styles.bodyText}>{idea.used.join(', ') || '未入力'}</Text>
-          <Text style={styles.sectionLabel}>足りないもの</Text>
-          <Text style={styles.bodyText}>{idea.missing.join(', ') || 'なし'}</Text>
-          <Text style={styles.sectionLabel}>超簡易作り方</Text>
-          {idea.steps.map((step) => (
-            <Text key={step} style={styles.bodyText}>• {step}</Text>
-          ))}
-          <Text style={styles.safetyText}>{idea.safety}</Text>
-          <View style={styles.ideaActions}>
-            <TouchableOpacity
-              style={styles.secondaryButton}
-              onPress={() => {
-                const rotated = [...ideas];
-                const regenerated = buildIdeasFrom(parsedIngredients);
-                const swapCandidate = regenerated[(index + 1) % regenerated.length];
-                if (swapCandidate) {
-                  rotated[index] = swapCandidate;
-                  setIdeas(rotated);
-                }
-              }}
+      {/* ② 種目リスト（メイン） */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {exercises.map((exercise) => {
+          const isDone = completedIds.has(exercise.id);
+          const isExpanded = expandedIds.has(exercise.id);
+          const guide = EXERCISE_GUIDE[exercise.id];
+          
+          return (
+            <View
+              key={exercise.id}
+              style={[
+                styles.exerciseCard,
+                { borderColor: isDone ? '#10B981' : textColor + '12' },
+                isDone && styles.exerciseCardDone,
+              ]}
             >
-              <Text style={styles.secondaryText}>Show another</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={() => {
-                setSwapSelection(parsedIngredients);
-                setSwapSheetOpen(true);
-              }}
-            >
-              <Text style={styles.primaryButtonText}>Swap ingredients</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      ))}
-
-      {shoppingList.length > 0 && (
-        <View style={styles.shoppingCard}>
-          <Text style={styles.sectionLabel}>買い物リスト（不足分のみ）</Text>
-          <Text style={styles.bodyText}>{shoppingList.join(', ')}</Text>
-        </View>
-      )}
-
-      <TouchableOpacity style={styles.secondaryButton} onPress={() => setCurrentStep('start')}>
-        <Text style={styles.secondaryText}>Startに戻る</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
-  return (
-    <View style={[styles.container, { paddingTop: insets.top + 12 }]}> 
-      <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        <View style={styles.headerRow}>
-          <Text style={[styles.appTitle, { color: textColor }]}>今日〜数日を成立させる</Text>
-          <View style={styles.badge}>
-            <IconSymbol name="wand.and.stars" color="#fff" size={16} />
-            <Text style={styles.badgeText}>食材起点</Text>
-          </View>
-        </View>
-
-        {renderStepIndicator()}
-
-        {currentStep === 'start' && renderStartScreen()}
-        {currentStep === 'ingredients' && renderIngredientInput()}
-        {currentStep === 'prep' && renderPrepSheet()}
-        {currentStep === 'suggestions' && renderMealSuggestions()}
-      </ScrollView>
-
-      <Modal visible={swapSheetOpen} animationType="slide" transparent>
-        <View style={styles.bottomSheetBackdrop}>
-          <View style={styles.bottomSheet}>
-            <Text style={styles.cardTitle}>食材を入れ替える</Text>
-            <Text style={styles.helperText}>新しい食材を選ぶとその場でカードを更新します</Text>
-            <View style={styles.quickList}>
-              {quickIngredientOptions.map((item) => {
-                const active = swapSelection.includes(item);
-                return (
-                  <TouchableOpacity
-                    key={item}
-                    style={[styles.chip, active && styles.chipActive]}
-                    onPress={() =>
-                      setSwapSelection((prev) =>
-                        prev.includes(item)
-                          ? prev.filter((p) => p !== item)
-                          : [...prev, item]
-                      )
-                    }
+              <View style={styles.exerciseRow}>
+                {/* 左側：種目情報（タップで完了） */}
+                <TouchableOpacity
+                  style={styles.exerciseMain}
+                  onPress={() => toggleExercise(exercise.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.exerciseName,
+                      { color: textColor },
+                      isDone && styles.exerciseNameDone,
+                    ]}
                   >
-                    <Text style={[styles.chipText, active && { color: '#fff' }]}>{item}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-            <View style={styles.footerRow}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={() => setSwapSheetOpen(false)}>
-                <Text style={styles.secondaryText}>閉じる</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.primaryButton} onPress={applySwapSelection}>
-                <Text style={styles.primaryButtonText}>反映する</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+                    {exercise.name}
+                  </Text>
+                  {guide && (
+                    <Text style={[styles.shortDesc, { color: textColor + '60' }]}>
+                      {guide.shortDesc}
+                    </Text>
+                  )}
+                  <Text style={[styles.exerciseDetails, { color: textColor + '70' }]}>
+                    {exercise.sets} sets × {exercise.reps} {exercise.id === 'plank' ? 'sec' : 'reps'}
+                  </Text>
+                  <Text style={[styles.exerciseRest, { color: textColor + '50' }]}>
+                    Rest {exercise.rest} sec
+                  </Text>
+                </TouchableOpacity>
 
-      <Modal visible={fridgeModalVisible} animationType="slide" transparent>
-        <View style={styles.bottomSheetBackdrop}>
-          <View style={styles.bottomSheet}>
-            <Text style={styles.cardTitle}>冷蔵庫の中身</Text>
-            {fridgeInventory.map((item) => (
-              <View key={item.name} style={styles.fridgeRow}>
-                <View>
-                  <Text style={styles.ideaTitle}>{item.name}</Text>
-                  <Text style={styles.helperText}>購入日: {item.purchasedAt}</Text>
-                </View>
-                <View style={styles.priorityRow}>
-                  <View style={[styles.dot, styles[`dot_${item.priority}` as const]]} />
-                  <Text style={styles.priorityText}>{priorityCopy[item.priority]}</Text>
+                {/* 右側：アイコン群 */}
+                <View style={styles.iconGroup}>
+                  {/* Info アイコン */}
+                  {guide && (
+                    <TouchableOpacity
+                      style={[
+                        styles.infoButton,
+                        isExpanded && styles.infoButtonActive,
+                      ]}
+                      onPress={() => toggleExpand(exercise.id)}
+                      activeOpacity={0.7}
+                    >
+                      <IconSymbol
+                        name="info.circle"
+                        size={22}
+                        color={isExpanded ? '#fff' : '#FF6B35'}
+                      />
+                    </TouchableOpacity>
+                  )}
+
+                  {/* チェックボックス */}
+                  <TouchableOpacity
+                    style={[
+                      styles.checkBox,
+                      { borderColor: isDone ? '#10B981' : textColor + '25' },
+                      isDone && styles.checkBoxDone,
+                    ]}
+                    onPress={() => toggleExercise(exercise.id)}
+                    activeOpacity={0.7}
+                  >
+                    {isDone && <IconSymbol name="checkmark" size={18} color="#fff" />}
+                  </TouchableOpacity>
                 </View>
               </View>
+
+              {/* 展開された説明 */}
+              {isExpanded && guide && (
+                <View style={styles.guideContent}>
+                  <Text style={[styles.guideText, { color: textColor + '80' }]}>
+                    {guide.howTo}
+                  </Text>
+                  <View style={[styles.guideTipBox, { backgroundColor: '#FF6B3510' }]}>
+                    <Text style={styles.guideTipText}>💡 {guide.tips}</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+          );
+        })}
+
+        {/* ⑤ オプション：フィードバック（折りたたみ） */}
+        <TouchableOpacity
+          style={[styles.feedbackToggle, { borderColor: textColor + '15' }]}
+          onPress={() => setShowFeedback(!showFeedback)}
+          activeOpacity={0.7}
+        >
+          <Text style={[styles.feedbackToggleText, { color: textColor + '60' }]}>
+            今日の感想を残す（任意）
+          </Text>
+          <IconSymbol
+            name={showFeedback ? 'chevron.up' : 'chevron.down'}
+            size={16}
+            color={textColor + '40'}
+          />
+        </TouchableOpacity>
+
+        {showFeedback && (
+          <View style={styles.feedbackOptions}>
+            {[
+              { key: 'hard', label: 'きつかった', emoji: '😮‍💨' },
+              { key: 'normal', label: '普通', emoji: '😊' },
+              { key: 'easy', label: '余裕', emoji: '💪' },
+            ].map((option) => (
+              <TouchableOpacity
+                key={option.key}
+                style={[
+                  styles.feedbackButton,
+                  { borderColor: feedback === option.key ? '#FF6B35' : textColor + '15' },
+                  feedback === option.key && styles.feedbackButtonActive,
+                ]}
+                onPress={() => setFeedback(option.key as Feedback)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.feedbackEmoji}>{option.emoji}</Text>
+                <Text
+                  style={[
+                    styles.feedbackLabel,
+                    { color: feedback === option.key ? '#FF6B35' : textColor + '70' },
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
             ))}
-            <TouchableOpacity style={styles.primaryButton} onPress={() => setFridgeModalVisible(false)}>
-              <Text style={styles.primaryButtonText}>閉じて続ける</Text>
-            </TouchableOpacity>
           </View>
-        </View>
-      </Modal>
+        )}
+      </ScrollView>
+
+      {/* ④ CTA（固定） */}
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 24) }]}>
+        <TouchableOpacity
+          style={[styles.completeButton, !allFinished && styles.completeButtonDisabled]}
+          onPress={handleComplete}
+          disabled={!allFinished}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.completeButtonText}>今日は完了</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -582,329 +658,238 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
-    padding: 20,
-    gap: 16,
-    paddingBottom: 40,
+  centeredContainer: {
+    justifyContent: 'center',
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  appTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
-  badge: {
-    flexDirection: 'row',
+
+  // ヘッダー
+  header: {
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 24,
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#0a7ea4',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
   },
-  badgeText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
-  card: {
-    borderRadius: 16,
-    padding: 16,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  helperText: {
-    color: '#6b7280',
-    fontSize: 13,
-    marginBottom: 6,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: 12,
-    flexWrap: 'wrap',
-  },
-  modeButton: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    padding: 12,
-    borderRadius: 12,
-  },
-  modeButtonActive: {
-    borderColor: '#0a7ea4',
-    backgroundColor: '#E6F4F9',
-  },
-  modeEmoji: {
-    fontSize: 32,
-  },
-  modeLabel: {
+  headerTop: {
     fontSize: 14,
-    fontWeight: '700',
-  },
-  modeHint: {
-    fontSize: 12,
-    color: '#6b7280',
-  },
-  inputGroup: {
-    gap: 6,
-  },
-  label: {
-    fontSize: 13,
     fontWeight: '600',
+    letterSpacing: 0.5,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 10,
-    padding: 12,
-    minHeight: 48,
-  },
-  quickList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-  },
-  chipActive: {
-    backgroundColor: '#0a7ea4',
-    borderColor: '#0a7ea4',
-  },
-  chipText: {
-    color: '#111827',
-  },
-  chipLarge: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    padding: 12,
-    borderRadius: 12,
-  },
-  chipLargeActive: {
-    borderColor: '#0a7ea4',
-    backgroundColor: '#E6F4F9',
-  },
-  chipTitle: {
-    fontWeight: '700',
-    marginBottom: 2,
-  },
-  chipDescription: {
-    color: '#6b7280',
-  },
-  footerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-  },
-  primaryButton: {
-    backgroundColor: '#0a7ea4',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    flex: 1,
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-  secondaryButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flex: 1,
-  },
-  secondaryText: {
-    color: '#111827',
-    fontWeight: '600',
-  },
-  quickCard: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: 12,
-    gap: 6,
-  },
-  resumeButton: {
-    marginTop: 8,
-    backgroundColor: '#0a7ea4',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    justifyContent: 'center',
-  },
-  resumeButtonDisabled: {
-    backgroundColor: '#9ca3af',
-  },
-  resumeText: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-  toggle: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-  },
-  toggleActive: {
-    borderColor: '#0a7ea4',
-    backgroundColor: '#E6F4F9',
-  },
-  toggleText: {
-    fontWeight: '700',
-  },
-  suggestionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  fridgeLink: {
-    color: '#0a7ea4',
-    fontWeight: '700',
-  },
-  ideaCard: {
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
-    borderRadius: 14,
-    padding: 12,
-    gap: 8,
-  },
-  ideaHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  ideaTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  ideaEffort: {
-    color: '#6b7280',
-    fontSize: 12,
-  },
-  sectionLabel: {
-    fontWeight: '700',
+  headerBodyPart: {
+    fontSize: 32,
+    fontWeight: '800',
     marginTop: 4,
   },
-  bodyText: {
-    color: '#111827',
+  headerTime: {
+    fontSize: 15,
+    marginTop: 2,
   },
-  safetyText: {
-    color: '#6b7280',
-    fontSize: 12,
-  },
-  ideaActions: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
-  },
-  shoppingCard: {
-    borderWidth: 1,
-    borderColor: '#0a7ea4',
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: '#E6F4F9',
-    gap: 4,
-  },
-  bottomSheetBackdrop: {
+
+  // 種目リスト
+  scrollView: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    justifyContent: 'flex-end',
   },
-  bottomSheet: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingBottom: 24,
     gap: 12,
   },
-  stepRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginVertical: 4,
+  exerciseCard: {
+    padding: 18,
+    borderRadius: 16,
+    borderWidth: 2,
+    backgroundColor: 'transparent',
   },
-  stepItem: {
+  exerciseCardDone: {
+    backgroundColor: '#10B98108',
+  },
+  exerciseRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+  },
+  exerciseMain: {
     flex: 1,
-    gap: 4,
+    gap: 2,
   },
-  stepDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 999,
-    backgroundColor: '#e5e7eb',
+  exerciseName: {
+    fontSize: 17,
+    fontWeight: '700',
   },
-  stepDotActive: {
-    backgroundColor: '#0a7ea4',
+  shortDesc: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 4,
   },
-  stepLabel: {
+  exerciseNameDone: {
+    textDecorationLine: 'line-through',
+    opacity: 0.5,
+  },
+  exerciseDetails: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  exerciseRest: {
     fontSize: 12,
-    textAlign: 'center',
   },
-  bottomSheetHandle: {
-    alignSelf: 'center',
-    width: 40,
-    height: 4,
-    borderRadius: 999,
-    backgroundColor: '#e5e7eb',
-    marginBottom: 8,
-  },
-  fridgeRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#f3f4f6',
-    paddingVertical: 8,
-  },
-  priorityRow: {
+  iconGroup: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
+  },
+  infoButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoButtonActive: {
+    backgroundColor: '#FF6B35',
+  },
+  guideContent: {
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.06)',
+    gap: 10,
+  },
+  guideText: {
+    fontSize: 14,
+    lineHeight: 22,
+  },
+  guideTipBox: {
+    padding: 10,
+    borderRadius: 8,
+  },
+  guideTipText: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: '#FF6B35',
+  },
+  checkBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkBoxDone: {
+    backgroundColor: '#10B981',
+    borderColor: '#10B981',
+  },
+
+  // フィードバック
+  feedbackToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 8,
+    gap: 8,
+  },
+  feedbackToggleText: {
+    fontSize: 14,
+  },
+  feedbackOptions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+  },
+  feedbackButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 2,
     gap: 6,
   },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
+  feedbackButtonActive: {
+    backgroundColor: '#FF6B3510',
   },
-  dot_red: {
-    backgroundColor: '#ef4444',
+  feedbackEmoji: {
+    fontSize: 24,
   },
-  dot_yellow: {
-    backgroundColor: '#f59e0b',
+  feedbackLabel: {
+    fontSize: 13,
+    fontWeight: '600',
   },
-  dot_green: {
-    backgroundColor: '#10b981',
+
+  // CTA
+  footer: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
   },
-  priorityText: {
-    color: '#111827',
+  completeButton: {
+    backgroundColor: '#FF6B35',
+    paddingVertical: 18,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  completeButtonDisabled: {
+    backgroundColor: '#FF6B3535',
+  },
+  completeButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+
+  // 完了画面
+  completedContent: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    gap: 16,
+  },
+  completedIcon: {
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: '#10B981',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  completedTitle: {
+    fontSize: 32,
+    fontWeight: '800',
+  },
+  completedSubtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  resetButton: {
+    marginTop: 24,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    borderWidth: 2,
+  },
+  resetButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+
+  // 休息日
+  restContent: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    gap: 12,
+  },
+  restEmoji: {
+    fontSize: 64,
+    marginBottom: 8,
+  },
+  restTitle: {
+    fontSize: 32,
+    fontWeight: '800',
+  },
+  restSubtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    lineHeight: 24,
   },
 });

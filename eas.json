@@ -1,0 +1,29 @@
+{
+  "cli": {
+    "version": ">= 5.0.0"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_AI_PROXY_URL": "https://makanai-flow-ai-proxy-dev.hirojoy189.workers.dev"
+      }
+    },
+    "preview": {
+      "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_AI_PROXY_URL": "https://makanai-flow-ai-proxy-dev.hirojoy189.workers.dev"
+      }
+    },
+    "production": {
+      "env": {
+        "EXPO_PUBLIC_AI_PROXY_URL": "https://makanai-flow-ai-proxy.hirojoy189.workers.dev"
+      }
+    }
+  },
+  "submit": {
+    "production": {}
+  }
+}
+

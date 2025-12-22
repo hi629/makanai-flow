@@ -1,0 +1,34 @@
+# Cloudflare Worker Configuration
+# 
+# Two separate Workers will be deployed:
+# - Development/Staging: makanai-flow-ai-proxy-dev
+# - Production: makanai-flow-ai-proxy
+#
+# Each Worker has its own environment variables (secrets).
+# The codebase is identical.
+
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# ============================================
+# Development / Staging Environment
+# ============================================
+[env.development]
+name = "makanai-flow-ai-proxy-dev"
+
+# Secrets (set via: npx wrangler secret put GEMINI_API_KEY --env development)
+# - GEMINI_API_KEY
+# - OPENAI_API_KEY (optional)
+# - ANTHROPIC_API_KEY (optional)
+
+# ============================================
+# Production Environment
+# ============================================
+[env.production]
+name = "makanai-flow-ai-proxy"
+
+# Secrets (set via: npx wrangler secret put GEMINI_API_KEY --env production)
+# - GEMINI_API_KEY
+# - OPENAI_API_KEY (optional)
+# - ANTHROPIC_API_KEY (optional)
+

@@ -1,56 +1,57 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useEffect, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useMemo, useState } from 'react';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColor } from '@/hooks/use-theme-color';
+import { getDailyLogs } from '@/lib/database';
 
 type CompletionLog = {
-  date: string; // YYYY-MM-DD
+  date: string;
   completed: boolean;
 };
 
-const formatDate = (date: Date) => date.toISOString().slice(0, 10);
-
-const generateSeedLog = (): CompletionLog[] => {
-  const today = new Date();
-  return Array.from({ length: 7 }, (_, idx) => {
-    const day = new Date(today);
-    day.setDate(today.getDate() - idx);
-    return {
-      date: formatDate(day),
-      completed: idx === 0 || idx === 1 || idx === 3 || idx === 4,
-    };
-  });
-};
-
 export default function HistoryScreen() {
+  const backgroundColor = useThemeColor({}, 'background');
   const textColor = useThemeColor({}, 'text');
-  const cardColor = useThemeColor({}, 'background');
   const insets = useSafeAreaInsets();
 
-  const [logs, setLogs] = useState<CompletionLog[]>(generateSeedLog());
+  const [logs, setLogs] = useState<CompletionLog[]>([]);
 
-  useEffect(() => {
-    const loadLogs = async () => {
-      try {
-        const stored = await AsyncStorage.getItem('daily_completion_log');
-        if (stored) {
-          const parsed = JSON.parse(stored) as CompletionLog[];
-          setLogs(parsed);
-        } else {
-          const seed = generateSeedLog();
-          setLogs(seed);
-          await AsyncStorage.setItem('daily_completion_log', JSON.stringify(seed));
+  useFocusEffect(
+    useCallback(() => {
+      const loadLogs = () => {
+        try {
+          const dbLogs = getDailyLogs(7);
+          const completionLogs: CompletionLog[] = dbLogs.map(log => ({
+            date: log.date,
+            completed: log.completed,
+          }));
+          
+          // Ensure we have 7 days of logs (fill missing days)
+          const today = new Date();
+          const filledLogs: CompletionLog[] = [];
+          for (let i = 0; i < 7; i++) {
+            const day = new Date(today);
+            day.setDate(today.getDate() - i);
+            const dateStr = day.toISOString().slice(0, 10);
+            const existingLog = completionLogs.find(l => l.date === dateStr);
+            filledLogs.push({
+              date: dateStr,
+              completed: existingLog?.completed || false,
+            });
+          }
+          
+          setLogs(filledLogs);
+        } catch (error) {
+          console.warn('Failed to load log', error);
         }
-      } catch (error) {
-        console.warn('Failed to load log', error);
-      }
-    };
+      };
 
-    loadLogs();
-  }, []);
+      loadLogs();
+    }, [])
+  );
 
   const sortedLogs = useMemo(
     () =>
@@ -85,17 +86,6 @@ export default function HistoryScreen() {
     return { done, pending };
   }, [sortedLogs]);
 
-  const toggleToday = async () => {
-    const todayKey = formatDate(new Date());
-    const updated = logs.map((item) =>
-      item.date === todayKey ? { ...item, completed: !item.completed } : item
-    );
-    setLogs(updated);
-    await AsyncStorage.setItem('daily_completion_log', JSON.stringify(updated));
-  };
-
-  const isTodayDone = logs.find((item) => item.date === formatDate(new Date()))?.completed;
-
   const dayLabel = (dateString: string) => {
     const date = new Date(dateString);
     return `${date.getMonth() + 1}/${date.getDate()}`;
@@ -108,75 +98,85 @@ export default function HistoryScreen() {
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={[styles.content, { paddingTop: insets.top + 20 }]}
-    >
-      <View style={styles.headerRow}>
-        <Text style={[styles.title, { color: textColor }]}>履歴・達成状況</Text>
-        <View style={styles.badge}>
-          <IconSymbol name="clock.arrow.circlepath" color="#fff" size={16} />
-          <Text style={styles.badgeText}>過去7日</Text>
-        </View>
+    <View style={[styles.container, { backgroundColor, paddingTop: Math.max(insets.top, 16) }]}>
+      <View style={styles.header}>
+        <Text style={[styles.logo, { color: textColor }]}>KAIZEN</Text>
+        <Text style={[styles.subtitle, { color: textColor + '70' }]}>履歴・達成状況</Text>
       </View>
 
-      <View style={[styles.card, { backgroundColor: cardColor }]}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>連続達成日数</Text>
-          <IconSymbol name="flame" size={18} color="#f97316" />
-        </View>
-        <Text style={styles.streakNumber}>{streak} 日</Text>
-        <Text style={styles.helperText}>今日を含む連続記録を表示します</Text>
-        <TouchableOpacity
-          style={[styles.primaryButton, isTodayDone && styles.primaryButtonDisabled]}
-          onPress={toggleToday}
-        >
-          <IconSymbol name={isTodayDone ? 'checkmark' : 'play.fill'} size={16} color="#fff" />
-          <Text style={styles.primaryButtonText}>
-            {isTodayDone ? '今日の達成を解除' : '今日の記録をつける'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-
-      <View style={[styles.card, { backgroundColor: cardColor }]}>
-        <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle}>過去7日間の記録</Text>
-          <Text style={styles.helperText}>完了 / 未完了をシンプルに表示</Text>
-        </View>
-
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryItem}>
-            <View style={[styles.dot, styles.doneDot]} />
-            <Text style={styles.summaryText}>完了 {completionStats.done}日</Text>
-          </View>
-          <View style={styles.summaryItem}>
-            <View style={[styles.dot, styles.pendingDot]} />
-            <Text style={styles.summaryText}>未完了 {completionStats.pending}日</Text>
-          </View>
-        </View>
-
-        <View style={styles.weekRow}>
-          {sortedLogs.map((item) => (
-            <View key={item.date} style={styles.dayColumn}>
-              <Text style={styles.weekdayLabel}>{weekdayLabel(item.date)}</Text>
-              <View
-                style={[
-                  styles.dayCircle,
-                  item.completed ? styles.dayCircleDone : styles.dayCirclePending,
-                ]}
-              >
-                <IconSymbol
-                  name={item.completed ? 'checkmark' : 'minus'}
-                  size={14}
-                  color={item.completed ? '#fff' : '#6b7280'}
-                />
-              </View>
-              <Text style={styles.dayLabel}>{dayLabel(item.date)}</Text>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Streak Card */}
+        <View style={[styles.card, { borderColor: textColor + '15' }]}>
+          <View style={styles.cardHeader}>
+            <View style={styles.streakIcon}>
+              <IconSymbol name="flame" size={24} color="#FF6B35" />
             </View>
-          ))}
+            <Text style={[styles.cardTitle, { color: textColor }]}>連続達成日数</Text>
+          </View>
+
+          <Text style={styles.streakNumber}>{streak}</Text>
+          <Text style={[styles.streakLabel, { color: textColor + '60' }]}>日連続</Text>
         </View>
-      </View>
-    </ScrollView>
+
+        {/* Weekly Stats Card */}
+        <View style={[styles.card, { borderColor: textColor + '15' }]}>
+          <Text style={[styles.cardTitle, { color: textColor }]}>過去7日間の記録</Text>
+
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <View style={[styles.statDot, styles.doneDot]} />
+              <Text style={[styles.statText, { color: textColor }]}>
+                完了 <Text style={styles.statNumber}>{completionStats.done}</Text>日
+              </Text>
+            </View>
+            <View style={styles.statItem}>
+              <View style={[styles.statDot, styles.pendingDot]} />
+              <Text style={[styles.statText, { color: textColor }]}>
+                未完了 <Text style={styles.statNumber}>{completionStats.pending}</Text>日
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.weekGrid}>
+            {sortedLogs.map((item) => (
+              <View key={item.date} style={styles.dayColumn}>
+                <Text style={[styles.weekdayText, { color: textColor + '60' }]}>
+                  {weekdayLabel(item.date)}
+                </Text>
+                <View
+                  style={[
+                    styles.dayCircle,
+                    item.completed ? styles.dayCircleDone : styles.dayCirclePending,
+                  ]}
+                >
+                  <IconSymbol
+                    name={item.completed ? 'checkmark' : 'minus'}
+                    size={16}
+                    color={item.completed ? '#fff' : '#ccc'}
+                  />
+                </View>
+                <Text style={[styles.dateText, { color: textColor }]}>
+                  {dayLabel(item.date)}
+                </Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* Tips Card */}
+        <View style={[styles.tipCard, { borderColor: '#FF6B35' }]}>
+          <Text style={styles.tipTitle}>💡 継続のコツ</Text>
+          <Text style={styles.tipText}>
+            毎日同じ時間にトレーニングすることで習慣化しやすくなります。
+            小さな達成でも記録をつけて、モチベーションを維持しましょう！
+          </Text>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -184,134 +184,140 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
-    padding: 20,
-    gap: 16,
-  },
-  headerRow: {
-    flexDirection: 'row',
+  header: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 8,
     alignItems: 'center',
-    justifyContent: 'space-between',
   },
-  title: {
-    fontSize: 20,
+  logo: {
+    fontSize: 28,
     fontWeight: '700',
+    letterSpacing: 3,
+    marginBottom: 8,
   },
-  badge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#0a7ea4',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
+  subtitle: {
+    fontSize: 15,
   },
-  badgeText: {
-    color: '#fff',
-    fontWeight: '600',
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 40,
+    gap: 20,
   },
   card: {
-    borderRadius: 16,
-    padding: 16,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
+    padding: 24,
+    borderRadius: 20,
+    borderWidth: 2,
+    gap: 16,
   },
   cardHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  helperText: {
-    color: '#6b7280',
-  },
-  streakNumber: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#0a7ea4',
-  },
-  primaryButton: {
-    backgroundColor: '#0a7ea4',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  primaryButtonDisabled: {
-    backgroundColor: '#059669',
-  },
-  primaryButtonText: {
-    color: '#fff',
-    fontWeight: '700',
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     gap: 12,
   },
-  summaryItem: {
+  streakIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#FF6B3520',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  streakNumber: {
+    fontSize: 72,
+    fontWeight: '800',
+    color: '#FF6B35',
+    textAlign: 'center',
+    lineHeight: 80,
+  },
+  streakLabel: {
+    fontSize: 18,
+    textAlign: 'center',
+    marginTop: -8,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 32,
+  },
+  statItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
-  summaryText: {
-    fontWeight: '600',
-  },
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 999,
+  statDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
   },
   doneDot: {
-    backgroundColor: '#0a7ea4',
+    backgroundColor: '#FF6B35',
   },
   pendingDot: {
-    backgroundColor: '#d1d5db',
+    backgroundColor: '#E5E5E5',
   },
-  weekRow: {
+  statText: {
+    fontSize: 15,
+  },
+  statNumber: {
+    fontWeight: '700',
+  },
+  weekGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 10,
+    marginTop: 8,
   },
   dayColumn: {
-    flex: 1,
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
+    flex: 1,
   },
-  weekdayLabel: {
-    color: '#6b7280',
+  weekdayText: {
+    fontSize: 13,
     fontWeight: '600',
   },
   dayCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#e5e7eb',
   },
   dayCircleDone: {
-    backgroundColor: '#0a7ea4',
-    borderColor: '#0a7ea4',
-    shadowColor: '#0a7ea4',
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    backgroundColor: '#FF6B35',
   },
   dayCirclePending: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#F5F5F5',
+    borderWidth: 2,
+    borderColor: '#E5E5E5',
   },
-  dayLabel: {
+  dateText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  tipCard: {
+    padding: 20,
+    borderRadius: 16,
+    backgroundColor: '#FF6B3510',
+    borderWidth: 2,
+    gap: 8,
+  },
+  tipTitle: {
+    fontSize: 16,
     fontWeight: '700',
+    color: '#FF6B35',
+  },
+  tipText: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: '#666',
   },
 });
