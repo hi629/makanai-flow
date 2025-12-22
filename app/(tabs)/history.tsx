@@ -1,7 +1,15 @@
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { WebView } from 'react-native-webview';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useThemeColor } from '@/hooks/use-theme-color';
@@ -18,6 +26,20 @@ export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
 
   const [logs, setLogs] = useState<CompletionLog[]>([]);
+  const [showLegalModal, setShowLegalModal] = useState(false);
+  const [legalUrl, setLegalUrl] = useState('');
+  const [legalTitle, setLegalTitle] = useState('');
+
+  const handleOpenLegal = (type: 'terms' | 'privacy') => {
+    const url =
+      type === 'terms'
+        ? 'https://www.langpost.com/legal/terms'
+        : 'https://www.langpost.com/legal/privacy';
+    const title = type === 'terms' ? '利用規約' : 'プライバシーポリシー';
+    setLegalUrl(url);
+    setLegalTitle(title);
+    setShowLegalModal(true);
+  };
 
   useFocusEffect(
     useCallback(() => {
@@ -175,7 +197,69 @@ export default function HistoryScreen() {
             小さな達成でも記録をつけて、モチベーションを維持しましょう！
           </Text>
         </View>
+
+        {/* Legal Links */}
+        <View style={[styles.legalCard, { borderColor: textColor + '15' }]}>
+          <Text style={[styles.legalTitle, { color: textColor }]}>その他</Text>
+          <TouchableOpacity
+            style={styles.legalItem}
+            onPress={() => handleOpenLegal('terms')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.legalItemContent}>
+              <IconSymbol name="doc.text" size={20} color="#2563EB" />
+              <View style={styles.legalItemText}>
+                <Text style={[styles.legalItemTitle, { color: textColor }]}>利用規約</Text>
+                <Text style={[styles.legalItemSubtitle, { color: textColor + '60' }]}>
+                  利用規約を表示
+                </Text>
+              </View>
+            </View>
+            <IconSymbol name="chevron.right" size={16} color={textColor + '40'} />
+          </TouchableOpacity>
+
+          <View style={[styles.legalDivider, { backgroundColor: textColor + '10' }]} />
+
+          <TouchableOpacity
+            style={styles.legalItem}
+            onPress={() => handleOpenLegal('privacy')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.legalItemContent}>
+              <IconSymbol name="shield" size={20} color="#0EA5E9" />
+              <View style={styles.legalItemText}>
+                <Text style={[styles.legalItemTitle, { color: textColor }]}>
+                  プライバシーポリシー
+                </Text>
+                <Text style={[styles.legalItemSubtitle, { color: textColor + '60' }]}>
+                  プライバシーポリシーを表示
+                </Text>
+              </View>
+            </View>
+            <IconSymbol name="chevron.right" size={16} color={textColor + '40'} />
+          </TouchableOpacity>
+        </View>
       </ScrollView>
+
+      {/* Legal Modal */}
+      <Modal
+        visible={showLegalModal}
+        animationType="slide"
+        onRequestClose={() => setShowLegalModal(false)}
+      >
+        <View style={[styles.modalContainer, { backgroundColor }]}>
+          <View
+            style={[styles.modalHeader, { paddingTop: insets.top, borderColor: textColor + '20' }]}
+          >
+            <TouchableOpacity onPress={() => setShowLegalModal(false)}>
+              <Text style={styles.modalCloseButton}>閉じる</Text>
+            </TouchableOpacity>
+            <Text style={[styles.modalTitle, { color: textColor }]}>{legalTitle}</Text>
+            <View style={styles.modalSpacer} />
+          </View>
+          <WebView source={{ uri: legalUrl }} style={styles.webView} />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -319,5 +403,72 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 22,
     color: '#666',
+  },
+
+  // Legal section
+  legalCard: {
+    padding: 20,
+    borderRadius: 16,
+    borderWidth: 2,
+    gap: 4,
+  },
+  legalTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 12,
+    opacity: 0.6,
+  },
+  legalItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  legalItemContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    flex: 1,
+  },
+  legalItemText: {
+    gap: 2,
+  },
+  legalItemTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  legalItemSubtitle: {
+    fontSize: 13,
+  },
+  legalDivider: {
+    height: 1,
+  },
+
+  // Modal
+  modalContainer: {
+    flex: 1,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+  },
+  modalCloseButton: {
+    fontSize: 16,
+    color: '#2563EB',
+    fontWeight: '500',
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  modalSpacer: {
+    width: 48,
+  },
+  webView: {
+    flex: 1,
   },
 });
