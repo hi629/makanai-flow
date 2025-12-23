@@ -9,8 +9,11 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.hiro629.kaizenbody"
+      "supportsTablet": false,
+      "bundleIdentifier": "com.hiro629.kaizenbody",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.hiro629.kaizenbody",
@@ -40,6 +43,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "973aaee7-ea81-4ffc-ac98-b01cf33cd7ce"
+      }
     }
   }
 }
